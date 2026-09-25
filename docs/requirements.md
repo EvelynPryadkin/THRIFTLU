@@ -33,7 +33,7 @@ The server must check permissions, timing, limits, and availability when an acti
 - **Reliability:** avoid duplicate reservations and inconsistent item statuses. Use server time for deadlines and show confirmation only after saving.
 - **Mobile use:** make browsing, reservations, and staff pickup screens usable on a phone.
 
-These are goals for implementation. The proposed stack is listed in the [README](../README.md#proposed-stack).
+These are goals for implementation. The stack is listed in the [README](../README.md#stack).
 
 ## Out of scope
 

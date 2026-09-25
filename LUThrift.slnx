@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LUThrift.Web/LUThrift.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LUThrift.Tests/LUThrift.Tests.csproj" />
+  </Folder>
+</Solution>
