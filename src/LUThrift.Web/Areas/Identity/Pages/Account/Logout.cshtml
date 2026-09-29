@@ -1,0 +1,19 @@
+@page
+@model LUThrift.Web.Areas.Identity.Pages.Account.LogoutModel
+@{
+    ViewData["Title"] = "Logout";
+}
+
+<h1>@ViewData["Title"]</h1>
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <p>Log out of your account?</p>
+    <form method="post" asp-route-returnUrl="@Model.ReturnUrl">
+        <button type="submit" class="btn btn-primary">Logout</button>
+    </form>
+}
+else
+{
+    <p>You are logged out.</p>
+    <a asp-page="./Login">Login</a>
+}
