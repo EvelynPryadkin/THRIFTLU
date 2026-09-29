@@ -1,22 +1,21 @@
 # Development Log
 
-## Week 2 — Database foundation
+## Week 1: Planning and project setup
 
-Checked that the .NET 10 web and test projects are connected through the solution and that the test project references the web project.
+I set up the THRIFTLU repository and organized the folders for the website, tests, and documentation. Most of the files were placeholders at this point.
 
-Set up PostgreSQL with Docker Compose and connected the app through EF Core. The database uses port 5433 because another project uses 5432. Its data stays in a named volume. The password is in the ignored .env file, and the connection string is in user secrets.
+I wrote the project overview, requirements, and reservation rules. The main goal is to let students see what is available in the thrift room before visiting and reserve an item for pickup. I outlined what students, staff, and administrators would need to do, along with the proposed one-hour reservation period and limit of three active reservations per student.
 
-Added the user, category, listing, and reservation models, then applied InitialDatabase using the local dotnet-ef tool. Seeded three categories and four sample items with fixed IDs and timestamps. No users, roles, or reservations were seeded.
+I chose ASP.NET Core Razor Pages with C#, EF Core, PostgreSQL, and xUnit. Pickup hours and the process for holding items still needed to be discussed with thrift-room staff.
 
-The home page reads the sample items and their categories from the database. Replaced the empty generated test with a check that both reservation relationships are required and use restrictive delete rules.
+## Week 2: Connecting the database
 
-Checks completed:
+I set up the .NET 10 web and test projects and added them to the solution. I then connected the app to PostgreSQL through EF Core, with the database running in Docker. I used port 5433 because another project was already using 5432. The database data is stored in a Docker volume, the password is in an ignored `.env` file, and the connection string is in user secrets.
 
-- Restore and build passed with no build warnings or errors; 1 test passed.
-- PostgreSQL was healthy, and the migration was up to date with no pending model changes.
-- The home page returned HTTP 200 and displayed all four items. The app was stopped after checking it.
-- Git's whitespace check passed.
+I added the user, category, listing, and reservation models and applied the first migration, `InitialDatabase`. I added three categories and four sample items to test the connection. The home page now loads those items and their categories from PostgreSQL.
 
-The local HTTPS certificate still needs to be trusted. The page check accepted that development certificate.
+I also added a test to check that reservations must belong to a user and a listing, and that deleting either cannot automatically erase reservation history.
 
-Authentication, roles, reservation actions, staff forms, and production setup are still later work.
+The build finished without warnings or errors, and the test passed. I checked that all four sample items appeared on the home page and that EF Core reported no pending model changes. The whitespace check passed too. The local HTTPS certificate still needed to be trusted, so the page check bypassed certificate validation.
+
+By the end of Week 2, the database and sample inventory display were working. Sign-in, reservation actions, and staff forms were still to come.
