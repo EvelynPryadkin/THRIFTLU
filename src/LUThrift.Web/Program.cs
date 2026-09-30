@@ -33,9 +33,17 @@ builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version1;
         options.Stores.MaxLengthForKeys = 0;
     })
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>();
 
+builder.Services.AddScoped<RoleInitializer>();
+
 var app = builder.Build();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    await scope.ServiceProvider.GetRequiredService<RoleInitializer>().InitializeAsync();
+}
 
 if (!app.Environment.IsDevelopment())
 {

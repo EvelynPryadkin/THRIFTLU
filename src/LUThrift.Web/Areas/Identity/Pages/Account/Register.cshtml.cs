@@ -1,16 +1,21 @@
 using System.ComponentModel.DataAnnotations;
+using LUThrift.Web.Authorization;
+using LUThrift.Web.Data;
 using LUThrift.Web.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.EntityFrameworkCore;
 
 namespace LUThrift.Web.Areas.Identity.Pages.Account;
 
 [AllowAnonymous]
 public class RegisterModel(
     UserManager<ApplicationUser> userManager,
-    SignInManager<ApplicationUser> signInManager) : PageModel
+    SignInManager<ApplicationUser> signInManager,
+    ApplicationDbContext dbContext,
+    ILogger<RegisterModel> logger) : PageModel
 {
     [BindProperty]
     public InputModel Input { get; set; } = new();
@@ -64,18 +69,47 @@ public class RegisterModel(
             IsActive = true
         };
 
-        var result = await userManager.CreateAsync(user, Input.Password);
-        if (result.Succeeded)
+        // User creation and the Student role must succeed together before signing in.
+        await using (var transaction = await dbContext.Database.BeginTransactionAsync())
         {
-            await signInManager.SignInAsync(user, isPersistent: false);
-            return LocalRedirect(ReturnUrl);
+            var result = await userManager.CreateAsync(user, Input.Password);
+            if (!result.Succeeded)
+            {
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError(string.Empty, error.Description);
+                }
+
+                return Page();
+            }
+
+            IdentityResult assignment;
+            try
+            {
+                assignment = await userManager.AddToRoleAsync(user, ApplicationRoles.Student);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or DbUpdateException)
+            {
+                return RoleAssignmentFailed();
+            }
+
+            if (!assignment.Succeeded)
+            {
+                return RoleAssignmentFailed();
+            }
+
+            await transaction.CommitAsync();
         }
 
-        foreach (var error in result.Errors)
-        {
-            ModelState.AddModelError(string.Empty, error.Description);
-        }
+        await signInManager.SignInAsync(user, isPersistent: false);
+        return LocalRedirect(ReturnUrl);
+    }
 
+    private PageResult RoleAssignmentFailed()
+    {
+        // Keep account details and store error descriptions out of the response and logs.
+        logger.LogError("Student role assignment failed; registration was not completed.");
+        ModelState.AddModelError(string.Empty, "We couldn't finish creating your account. Please try again.");
         return Page();
     }
 }
