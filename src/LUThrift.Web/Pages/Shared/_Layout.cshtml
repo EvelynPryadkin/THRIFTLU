@@ -1,4 +1,5 @@
-﻿<!DOCTYPE html>
+﻿@using LUThrift.Web.Authorization
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
@@ -26,6 +27,18 @@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Privacy">Privacy</a>
                         </li>
+                        @if (User.IsInRole(ApplicationRoles.Staff) || User.IsInRole(ApplicationRoles.Administrator))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-area="" asp-page="/Staff/Index">Staff</a>
+                            </li>
+                        }
+                        @if (User.IsInRole(ApplicationRoles.Administrator))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-area="" asp-page="/Admin/Index">Admin</a>
+                            </li>
+                        }
                     </ul>
                     <partial name="_LoginPartial" />
                 </div>

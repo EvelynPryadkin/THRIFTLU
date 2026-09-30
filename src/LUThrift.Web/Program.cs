@@ -1,3 +1,4 @@
+using LUThrift.Web.Authorization;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
 using Microsoft.AspNetCore.Identity;
@@ -5,7 +6,14 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.AuthorizeFolder("/Staff", Policies.StaffOrAdministrator);
+    options.Conventions.AuthorizeFolder("/Admin", Policies.AdministratorOnly);
+    options.Conventions.AuthorizeFolder("/Account");
+    options.Conventions.AllowAnonymousToFolder("/Thrift");
+    options.Conventions.AllowAnonymousToPage("/Index");
+});
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
@@ -35,6 +43,22 @@ builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>();
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Identity/Account/Login";
+    options.AccessDeniedPath = "/Identity/Account/AccessDenied";
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(Policies.StaffOrAdministrator, policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireRole(ApplicationRoles.Staff, ApplicationRoles.Administrator));
+    options.AddPolicy(Policies.AdministratorOnly, policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireRole(ApplicationRoles.Administrator));
+});
 
 builder.Services.AddScoped<RoleInitializer>();
 

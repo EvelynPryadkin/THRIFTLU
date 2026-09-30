@@ -62,6 +62,21 @@ dotnet user-secrets remove "DevelopmentAdmin:Email" --project src/LUThrift.Web
 
 Removing the setting does not remove an already assigned role. Keep actual emails and credentials out of source files. Ordinary registration always assigns Student on the server; there is no role selector or self-service role management. The initializer checks existing roles and membership on every startup, so repeated starts do not duplicate them. If required role creation or administrator assignment fails, startup fails rather than serving the app with incomplete initialization.
 
+### Page access
+
+Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
+
+| Page or folder | Access |
+| --- | --- |
+| `/` and `/Thrift` | Public |
+| `/Account` | Signed-in users |
+| `/Staff` | Staff or Administrator |
+| `/Admin` | Administrator |
+
+These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
+
+The home page is the current public catalog. Staff and Admin have minimal landing pages; the other catalog, account, inventory, pickup, and administration files are still empty placeholders without routes. The folder rules will apply as those pages are implemented. Reservation ownership checks remain future work.
+
 ## Documentation
 
 - [Requirements](docs/requirements.md)
