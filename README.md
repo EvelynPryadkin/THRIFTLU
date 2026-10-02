@@ -18,9 +18,13 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 ## Status
 
-The Week 2 database foundation is in place. The home page reads sample items from a local PostgreSQL database, and a smoke test checks that deleting users or listings can't erase reservation history.
+The Week 3 account and authorization foundation is implemented on top of the Week 2 PostgreSQL schema. The home page reads sample inventory from the database.
 
-Registration, login, and logout are available. New accounts receive the Student role. Student, Staff, and Administrator roles are created at startup; reservation actions and staff tools are still planned. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
+
+Student, Staff, and Administrator roles are created at startup. Staff pages require Staff or Administrator; Admin pages require Administrator. The optional development administrator setup below promotes only an existing account. Email confirmation is disabled while there is no email service.
+
+Reservation actions and staff tools are still planned. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ## Running locally
 
@@ -41,7 +45,7 @@ dotnet ef database update --project src/LUThrift.Web -- --environment Developmen
 dotnet run --project src/LUThrift.Web --launch-profile https
 ```
 
-Open https://localhost:7131. The local development certificate may need to be trusted in your browser. Run the test with `dotnet test LUThrift.slnx`.
+Open https://localhost:7131. The local development certificate may need to be trusted in your browser. The automated checks below run independently of this local database.
 
 ### Optional development administrator
 
@@ -76,6 +80,30 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
 
 The home page is the current public catalog. Staff and Admin have minimal landing pages; the other catalog, account, inventory, pickup, and administration files are still empty placeholders without routes. The folder rules will apply as those pages are implemented. Reservation ownership checks remain future work.
+
+## Automated checks
+
+The tests require the .NET 10 SDK and restored NuGet packages. They do not require Docker, PostgreSQL, or user secrets:
+
+```sh
+dotnet restore LUThrift.slnx
+dotnet build LUThrift.slnx
+dotnet test LUThrift.slnx
+```
+
+The integration tests use `Microsoft.AspNetCore.Mvc.Testing` for .NET 10. `WebApplicationFactory<ApplicationDbContext>` uses the web assembly as its entry point, so `Program` does not need to be exposed. The test host runs in the Testing environment with SQLite in memory and temporary data-protection keys. Route tests use controlled Identity cookies with the normal authentication middleware; form tests submit requests with real antiforgery tokens. These substitutions live only in the test project.
+
+The suite covers the Staff/Admin access matrix, role-dependent navigation, Access Denied responses, registration overposting, login failures, logout protection, role initialization, development bootstrap restrictions, and registration rollback. The original database-model test is retained. Tests for empty account and catalog files check their folder conventions; they do not claim those routes exist. SQLite tests do not replace PostgreSQL-specific verification.
+
+To compare the EF model with the migration snapshot without connecting to the development database, restore the local tool and use a placeholder connection in the Testing environment:
+
+```sh
+dotnet tool restore
+ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_model_check;Username=model_check;Timeout=1' \
+  dotnet ef migrations has-pending-model-changes --project src/LUThrift.Web --no-build -- --environment Testing
+```
+
+The custom account workflow is limited to registration, login, logout, and access denial. Email delivery, campus sign-in, account deactivation, and application-specific profile/history pages remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
 
 ## Documentation
 
