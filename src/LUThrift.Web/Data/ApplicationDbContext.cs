@@ -10,6 +10,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Listing> Listings => Set<Listing>();
     public DbSet<Reservation> Reservations => Set<Reservation>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
