@@ -12,6 +12,8 @@ public class ListingService(ApplicationDbContext context)
     private static readonly ListingStatus[] EditableStatuses =
         [ListingStatus.Draft, ListingStatus.Available, ListingStatus.Missing];
 
+    public static bool IsEditable(ListingStatus status) => EditableStatuses.Contains(status);
+
     public async Task<IReadOnlyList<Listing>> GetInventoryAsync(CancellationToken cancellationToken = default)
         => await context.Listings.AsNoTracking()
             .Include(listing => listing.Category)
@@ -28,7 +30,7 @@ public class ListingService(ApplicationDbContext context)
             return NotFound<UpdateListingInput>();
         }
 
-        if (!EditableStatuses.Contains(listing.Status))
+        if (!IsEditable(listing.Status))
         {
             return NotEditable<UpdateListingInput>();
         }

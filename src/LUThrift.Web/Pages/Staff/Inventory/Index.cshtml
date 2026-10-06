@@ -1,0 +1,91 @@
+@page
+@model LUThrift.Web.Pages.Staff.Inventory.IndexModel
+@using System.Globalization
+@using LUThrift.Web.Models
+@using LUThrift.Web.Services
+@{
+    ViewData["Title"] = "Inventory";
+}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+    <h1 class="mb-0">@ViewData["Title"]</h1>
+    <a href="~/Staff/Inventory/Create" class="btn btn-primary disabled" aria-disabled="true"
+       aria-describedby="inventory-forms-note" tabindex="-1" onclick="return false;">Create listing</a>
+</div>
+<p id="inventory-forms-note" class="text-muted">Create and edit forms are coming soon.</p>
+
+<form method="get" asp-page="/Staff/Inventory/Index" class="row g-2 align-items-end mb-4">
+    <div class="col-sm-6 col-md-4">
+        <label asp-for="Status" class="form-label">Status</label>
+        <select asp-for="Status" asp-items="Html.GetEnumSelectList<ListingStatus>()" class="form-select">
+            <option value="">All statuses</option>
+        </select>
+        <span asp-validation-for="Status" class="text-danger"></span>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a asp-page="/Staff/Inventory/Index" class="btn btn-outline-secondary">Clear</a>
+    </div>
+</form>
+
+@if (!Model.HasInventory)
+{
+    <p>No inventory listings yet.</p>
+}
+else if (Model.Listings.Count == 0)
+{
+    <p>No listings match this status.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <caption class="caption-top">Inventory listings, newest first.</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Title</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Condition</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Created (UTC)</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var listing in Model.Listings)
+                {
+                    var createdAtUtc = DateTime.SpecifyKind(listing.CreatedAtUtc, DateTimeKind.Utc);
+                    <tr>
+                        <th scope="row">
+                            <div class="d-flex align-items-center gap-2">
+                                <img src="~/images/listing-placeholder.svg" alt="No image available" width="64" height="64" />
+                                <span class="text-break">@listing.Title</span>
+                            </div>
+                        </th>
+                        <td>@listing.Category.Name</td>
+                        <td>@listing.Condition</td>
+                        <td>@(listing.Size ?? "Not specified")</td>
+                        <td>@listing.Status</td>
+                        <td>
+                            <time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@createdAtUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</time>
+                        </td>
+                        <td>
+                            @if (ListingService.IsEditable(listing.Status))
+                            {
+                                <a href="@Url.Content("~/Staff/Inventory/Edit")?id=@listing.Id"
+                                   class="btn btn-sm btn-outline-primary disabled" aria-disabled="true"
+                                   aria-label="Edit @listing.Title" aria-describedby="inventory-forms-note"
+                                   tabindex="-1" onclick="return false;">Edit</a>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Not editable</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
