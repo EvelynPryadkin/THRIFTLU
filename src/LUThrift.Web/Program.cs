@@ -1,6 +1,7 @@
 using LUThrift.Web.Authorization;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
+using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -61,6 +62,7 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddScoped<RoleInitializer>();
+builder.Services.AddScoped<ListingService>();
 
 var app = builder.Build();
 
