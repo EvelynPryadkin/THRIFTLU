@@ -44,7 +44,7 @@ public class StaffInventoryDashboardTests
     }
 
     [Fact]
-    public async Task Dashboard_RendersAllStatusesInNewestOrderWithMetadataAndDisabledFutureLinks()
+    public async Task Dashboard_RendersAllStatusesInNewestOrderWithMetadataAndActiveFormLinks()
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
@@ -93,7 +93,7 @@ public class StaffInventoryDashboardTests
             if (listing.Status is ListingStatus.Draft or ListingStatus.Available or ListingStatus.Missing)
             {
                 var link = Assert.Single(editLinks);
-                AssertDisabled(link);
+                AssertActive(link);
                 var target = new Uri(client.BaseAddress!, Attribute(link, "href"));
                 Assert.Equal("/Staff/Inventory/Edit", target.AbsolutePath);
                 Assert.Equal(listing.Id.ToString(CultureInfo.InvariantCulture), QueryHelpers.ParseQuery(target.Query)["id"].ToString());
@@ -105,7 +105,7 @@ public class StaffInventoryDashboardTests
         }
 
         var createLink = Assert.Single(Tags(html, "a"), link => Attribute(link, "href") == "/Staff/Inventory/Create");
-        AssertDisabled(createLink);
+        AssertActive(createLink);
         using var placeholder = await client.GetAsync(placeholderPath);
         Assert.Equal(HttpStatusCode.OK, placeholder.StatusCode);
         Assert.Equal("image/svg+xml", placeholder.Content.Headers.ContentType?.MediaType);
@@ -232,9 +232,11 @@ public class StaffInventoryDashboardTests
     private static string Attribute(string tag, string attribute)
         => WebUtility.HtmlDecode(Regex.Match(tag, $"\\b{attribute}=\"([^\"]*)\"", RegexOptions.IgnoreCase).Groups[1].Value);
 
-    private static void AssertDisabled(string link)
+    private static void AssertActive(string link)
     {
-        Assert.Equal("true", Attribute(link, "aria-disabled"));
-        Assert.Contains("disabled", Attribute(link, "class").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        Assert.NotEqual("true", Attribute(link, "aria-disabled"));
+        Assert.DoesNotContain("disabled", Attribute(link, "class").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        Assert.NotEqual("-1", Attribute(link, "tabindex"));
+        Assert.DoesNotContain("return false", Attribute(link, "onclick"));
     }
 }

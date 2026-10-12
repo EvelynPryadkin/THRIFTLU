@@ -14,6 +14,13 @@ public class ListingService(ApplicationDbContext context)
 
     public static bool IsEditable(ListingStatus status) => EditableStatuses.Contains(status);
 
+    public async Task<IReadOnlyList<Category>> GetCategoriesAsync(CancellationToken cancellationToken = default)
+        => await context.Categories.AsNoTracking()
+            .OrderBy(category => category.DisplayOrder)
+            .ThenBy(category => category.Name)
+            .ThenBy(category => category.Id)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Listing>> GetInventoryAsync(CancellationToken cancellationToken = default)
         => await context.Listings.AsNoTracking()
             .Include(listing => listing.Category)

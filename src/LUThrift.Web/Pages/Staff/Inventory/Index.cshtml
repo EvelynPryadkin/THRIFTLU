@@ -9,10 +9,13 @@
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
     <h1 class="mb-0">@ViewData["Title"]</h1>
-    <a href="~/Staff/Inventory/Create" class="btn btn-primary disabled" aria-disabled="true"
-       aria-describedby="inventory-forms-note" tabindex="-1" onclick="return false;">Create listing</a>
+    <a asp-page="./Create" class="btn btn-primary">Create listing</a>
 </div>
-<p id="inventory-forms-note" class="text-muted">Create and edit forms are coming soon.</p>
+
+@if (!string.IsNullOrWhiteSpace(Model.InventoryMessage))
+{
+    <div class="alert alert-success" role="status">@Model.InventoryMessage</div>
+}
 
 <form method="get" asp-page="/Staff/Inventory/Index" class="row g-2 align-items-end mb-4">
     <div class="col-sm-6 col-md-4">
@@ -73,10 +76,8 @@ else
                         <td>
                             @if (ListingService.IsEditable(listing.Status))
                             {
-                                <a href="@Url.Content("~/Staff/Inventory/Edit")?id=@listing.Id"
-                                   class="btn btn-sm btn-outline-primary disabled" aria-disabled="true"
-                                   aria-label="Edit @listing.Title" aria-describedby="inventory-forms-note"
-                                   tabindex="-1" onclick="return false;">Edit</a>
+                                <a asp-page="./Edit" asp-route-id="@listing.Id"
+                                   class="btn btn-sm btn-outline-primary" aria-label="Edit @listing.Title">Edit</a>
                             }
                             else
                             {

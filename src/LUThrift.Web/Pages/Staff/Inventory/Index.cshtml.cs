@@ -8,6 +8,9 @@ namespace LUThrift.Web.Pages.Staff.Inventory;
 
 public class IndexModel(ListingService listingService) : PageModel
 {
+    [TempData]
+    public string? InventoryMessage { get; set; }
+
     [BindProperty(SupportsGet = true)]
     [EnumDataType(typeof(ListingStatus))]
     public ListingStatus? Status { get; set; }

@@ -1,0 +1,50 @@
+@page
+@model LUThrift.Web.Pages.Staff.Inventory.CreateModel
+@{
+    ViewData["Title"] = "Create listing";
+}
+
+<h1>@ViewData["Title"]</h1>
+<p>New listings start as drafts.</p>
+
+<div class="row">
+    <div class="col-md-8 col-lg-6">
+        <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
+        <form method="post" asp-page="./Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger" role="alert"></div>
+            <div class="mb-3">
+                <label asp-for="Input.Title" class="form-label"></label>
+                <input asp-for="Input.Title" class="form-control" maxlength="150" aria-describedby="title-error" />
+                <span asp-validation-for="Input.Title" id="title-error" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Description" class="form-label"></label>
+                <textarea asp-for="Input.Description" class="form-control" rows="5" maxlength="2000" aria-describedby="description-error"></textarea>
+                <span asp-validation-for="Input.Description" id="description-error" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Condition" class="form-label"></label>
+                <input asp-for="Input.Condition" class="form-control" maxlength="100" aria-describedby="condition-error" />
+                <span asp-validation-for="Input.Condition" id="condition-error" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Size" class="form-label">Size (optional)</label>
+                <input asp-for="Input.Size" class="form-control" maxlength="50" aria-describedby="size-error" />
+                <span asp-validation-for="Input.Size" id="size-error" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.CategoryId" class="form-label"></label>
+                <select asp-for="Input.CategoryId" asp-items="Model.CategoryOptions" class="form-select" aria-describedby="category-error">
+                    <option value="0">Choose a category</option>
+                </select>
+                <span asp-validation-for="Input.CategoryId" id="category-error" class="text-danger"></span>
+            </div>
+            <button type="submit" class="btn btn-primary">Create listing</button>
+            <a asp-page="./Index" class="btn btn-outline-secondary">Cancel</a>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="/Pages/Shared/_ValidationScriptsPartial.cshtml" />
+}
