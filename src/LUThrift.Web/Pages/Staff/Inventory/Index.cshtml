@@ -16,6 +16,10 @@
 {
     <div class="alert alert-success" role="status">@Model.InventoryMessage</div>
 }
+@if (!string.IsNullOrWhiteSpace(Model.InventoryError))
+{
+    <div class="alert alert-danger" role="alert">@Model.InventoryError</div>
+}
 
 <form method="get" asp-page="/Staff/Inventory/Index" class="row g-2 align-items-end mb-4">
     <div class="col-sm-6 col-md-4">
@@ -74,15 +78,49 @@ else
                             <time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@createdAtUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</time>
                         </td>
                         <td>
-                            @if (ListingService.IsEditable(listing.Status))
-                            {
-                                <a asp-page="./Edit" asp-route-id="@listing.Id"
-                                   class="btn btn-sm btn-outline-primary" aria-label="Edit @listing.Title">Edit</a>
-                            }
-                            else
-                            {
-                                <span class="text-muted">Not editable</span>
-                            }
+                            <div class="d-flex flex-wrap gap-2">
+                                @if (ListingService.IsEditable(listing.Status))
+                                {
+                                    <a asp-page="./Edit" asp-route-id="@listing.Id"
+                                       class="btn btn-sm btn-outline-primary" aria-label="Edit @listing.Title">Edit</a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Not editable</span>
+                                }
+                                @if (ListingService.CanPublish(listing.Status))
+                                {
+                                    <form method="post" asp-page="./Index" asp-page-handler="Publish"
+                                          asp-route-id="@listing.Id" asp-antiforgery="true">
+                                        <button type="submit" class="btn btn-sm btn-primary"
+                                                aria-label="Publish @listing.Title">Publish</button>
+                                    </form>
+                                }
+                                @if (ListingService.CanArchive(listing.Status))
+                                {
+                                    <form method="post" asp-page="./Index" asp-page-handler="Archive"
+                                          asp-route-id="@listing.Id" asp-antiforgery="true">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                aria-label="Archive @listing.Title">Archive</button>
+                                    </form>
+                                }
+                                @if (ListingService.CanMarkMissing(listing.Status))
+                                {
+                                    <form method="post" asp-page="./Index" asp-page-handler="MarkMissing"
+                                          asp-route-id="@listing.Id" asp-antiforgery="true">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                aria-label="Mark @listing.Title as missing">Mark missing</button>
+                                    </form>
+                                }
+                                @if (ListingService.CanRecordWalkInCollection(listing.Status))
+                                {
+                                    <form method="post" asp-page="./Index" asp-page-handler="RecordWalkInCollection"
+                                          asp-route-id="@listing.Id" asp-antiforgery="true">
+                                        <button type="submit" class="btn btn-sm btn-outline-success"
+                                                aria-label="Record walk-in collection for @listing.Title">Record walk-in collection</button>
+                                    </form>
+                                }
+                            </div>
                         </td>
                     </tr>
                 }

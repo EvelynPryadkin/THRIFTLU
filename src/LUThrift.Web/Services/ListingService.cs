@@ -14,6 +14,32 @@ public class ListingService(ApplicationDbContext context)
 
     public static bool IsEditable(ListingStatus status) => EditableStatuses.Contains(status);
 
+    public static bool CanPublish(ListingStatus status) => status == ListingStatus.Draft;
+    public static bool CanMarkMissing(ListingStatus status) => status == ListingStatus.Available;
+    public static bool CanRecordWalkInCollection(ListingStatus status) => status == ListingStatus.Available;
+    public static bool CanArchive(ListingStatus status)
+        => status is ListingStatus.Draft or ListingStatus.Available or ListingStatus.Missing;
+
+    public Task<ListingResult<int>> PublishAsync(
+        int listingId, string? actorUserId, CancellationToken cancellationToken = default)
+        => TransitionAsync(listingId, actorUserId, CanPublish, ListingStatus.Available,
+            InventoryAuditActions.Published, cancellationToken);
+
+    public Task<ListingResult<int>> MarkMissingAsync(
+        int listingId, string? actorUserId, CancellationToken cancellationToken = default)
+        => TransitionAsync(listingId, actorUserId, CanMarkMissing, ListingStatus.Missing,
+            InventoryAuditActions.MarkedMissing, cancellationToken);
+
+    public Task<ListingResult<int>> RecordWalkInCollectionAsync(
+        int listingId, string? actorUserId, CancellationToken cancellationToken = default)
+        => TransitionAsync(listingId, actorUserId, CanRecordWalkInCollection, ListingStatus.Collected,
+            InventoryAuditActions.WalkInCollected, cancellationToken);
+
+    public Task<ListingResult<int>> ArchiveAsync(
+        int listingId, string? actorUserId, CancellationToken cancellationToken = default)
+        => TransitionAsync(listingId, actorUserId, CanArchive, ListingStatus.Archived,
+            InventoryAuditActions.Archived, cancellationToken);
+
     public async Task<IReadOnlyList<Category>> GetCategoriesAsync(CancellationToken cancellationToken = default)
         => await context.Categories.AsNoTracking()
             .OrderBy(category => category.DisplayOrder)
@@ -161,12 +187,84 @@ public class ListingService(ApplicationDbContext context)
         return ListingResult<int>.Success(listingId);
     }
 
-    private static ListingResult<int>? ValidateWrite(object? input, string? actorUserId)
+    private async Task<ListingResult<int>> TransitionAsync(
+        int listingId, string? actorUserId, Func<ListingStatus, bool> canTransition,
+        ListingStatus nextStatus, string action, CancellationToken cancellationToken)
+    {
+        var invalidActor = ValidateActor(actorUserId);
+        if (invalidActor is not null)
+        {
+            return invalidActor;
+        }
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var currentStatus = await context.Listings.AsNoTracking()
+            .Where(listing => listing.Id == listingId)
+            .Select(listing => (ListingStatus?)listing.Status)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (currentStatus is null)
+        {
+            return NotFound<int>();
+        }
+
+        if (!canTransition(currentStatus.Value))
+        {
+            return InvalidTransition();
+        }
+
+        // Check the status again in the UPDATE: another request may have changed it since the read.
+        var changed = await context.Listings
+            .Where(listing => listing.Id == listingId && listing.Status == currentStatus.Value)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, nextStatus),
+                cancellationToken);
+        if (changed == 0)
+        {
+            return await context.Listings.AnyAsync(listing => listing.Id == listingId, cancellationToken)
+                ? InvalidTransition()
+                : NotFound<int>();
+        }
+
+        var audit = new AuditEvent
+        {
+            ListingId = listingId,
+            ActorUserId = actorUserId!,
+            Action = action,
+            OccurredAtUtc = DateTime.UtcNow,
+            Details = $"Status changed from {currentStatus.Value} to {nextStatus}."
+        };
+        context.AuditEvents.Add(audit);
+        try
+        {
+            // ExecuteUpdate and SaveChanges share this transaction; a failed audit rolls back the status.
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            context.Entry(audit).State = EntityState.Detached;
+            throw;
+        }
+
+        return ListingResult<int>.Success(listingId);
+    }
+
+    private static ListingResult<int>? ValidateActor(string? actorUserId)
     {
         if (string.IsNullOrWhiteSpace(actorUserId) || actorUserId.Length > 450)
         {
             return ListingResult<int>.Failure(ListingResultStatus.InvalidActor,
                 new ValidationResult("A valid authenticated user ID is required to record this change."));
+        }
+
+        return null;
+    }
+
+    private static ListingResult<int>? ValidateWrite(object? input, string? actorUserId)
+    {
+        var invalidActor = ValidateActor(actorUserId);
+        if (invalidActor is not null)
+        {
+            return invalidActor;
         }
 
         if (input is null)
@@ -195,4 +293,8 @@ public class ListingService(ApplicationDbContext context)
     private static ListingResult<T> NotEditable<T>()
         => ListingResult<T>.Failure(ListingResultStatus.NotEditable,
             new ValidationResult("Only draft, available, or missing listings can be edited."));
+
+    private static ListingResult<int> InvalidTransition()
+        => ListingResult<int>.Failure(ListingResultStatus.InvalidTransition,
+            new ValidationResult("This action is not available for the listing's current status. Refresh the inventory and try again."));
 }

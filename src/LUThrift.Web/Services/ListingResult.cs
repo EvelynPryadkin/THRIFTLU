@@ -9,7 +9,8 @@ public enum ListingResultStatus
     InvalidActor,
     CategoryNotFound,
     NotFound,
-    NotEditable
+    NotEditable,
+    InvalidTransition
 }
 
 public sealed class ListingResult<T>
