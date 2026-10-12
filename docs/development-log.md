@@ -35,3 +35,17 @@ I added tests that run the app with SQLite in memory, so checking page access do
 The final restore and build passed with no warnings or errors. All 47 tests passed, and EF Core reported no pending model changes. These checks did not connect to the development database.
 
 The home page remains the working public catalog. The other catalog and private account files are still placeholders, so their tests check the folder rules rather than working pages. Reservation actions, ownership checks, inventory tools, and user administration are still for later weeks. Email confirmation remains disabled because no email service is configured.
+
+## Week 4: Staff inventory
+
+I added the staff inventory dashboard, with all listing statuses, a status filter, and the newest items first. Staff and Administrators can reach it from the Staff landing page. The existing Staff folder policy also protects Create, Edit, and the lifecycle POST handlers.
+
+Create and Edit use separate input models for the title, description, condition, optional size, and category. The PageModels call `ListingService`, which checks the fields and category, trims text, and saves the changes. New listings start as Draft. Editing a Draft, Available, or Missing listing keeps its status. IDs, timestamps, status changes, and audit information do not come from the form.
+
+I added Publish, Mark missing, Record walk-in collection, and Archive. Publish moves Draft to Available. An Available item can become Missing or Collected, and Draft, Available, or Missing items can be archived. The service checks these rules against the database, so changing a form value or using an old page cannot bypass them. Held is reserved for future reservations. Held, Collected, and Archived listings cannot be edited or changed by the Week 4 actions.
+
+The `AddInventoryAuditEvents` migration adds the audit table. Every successful create, edit, or lifecycle action records the listing, signed-in actor, action, and UTC time. Status changes also record the old and new status. Each listing change and its audit are saved in the same transaction. Staff archive records instead of deleting them, and the database prevents deleting a listing with audit history. The actor ID remains historical information even if the account is later removed.
+
+For this final checkpoint, I reviewed the existing tests and added checks for forged roles and audit fields, editing each editable status, and lifecycle access and antiforgery protection across the POST handlers. The tests use SQLite in memory and the existing `WebApplicationFactory` setup. They do not use the development PostgreSQL database.
+
+Real image upload is not implemented; the pages use a temporary local SVG. Reservations, reservation pickup confirmation, expiration, and ownership checks are still future work. There is no audit-history screen or staff-role management screen. I added a manual development-account and inventory checklist to the README; documenting the steps does not mean a manual browser run has been completed.

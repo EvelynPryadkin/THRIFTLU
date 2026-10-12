@@ -99,17 +99,32 @@ public class StaffListingFormTests
         Assert.NotEqual(int.MaxValue, created.Id);
         Assert.Equal(ListingStatus.Draft, created.Status);
         Assert.InRange(created.CreatedAtUtc, startedAt, DateTime.UtcNow);
+        var unchanged = await database.Listings.AsNoTracking().Where(listing => listing.Id != created.Id)
+            .OrderBy(listing => listing.Id).ToArrayAsync();
+        Assert.Equal(before.Select(Snapshot), unchanged.Select(Snapshot));
         var audit = await database.AuditEvents.SingleAsync();
+        Assert.NotEqual(int.MaxValue, audit.Id);
         Assert.Equal(created.Id, audit.ListingId);
         Assert.Equal(InventoryAuditActions.Created, audit.Action);
         Assert.Equal(await database.Users.Select(user => user.Id).SingleAsync(), audit.ActorUserId);
+        Assert.InRange(audit.OccurredAtUtc, startedAt, DateTime.UtcNow);
+        Assert.DoesNotContain(fields["AuditEvents[0].Details"], audit.Details ?? string.Empty);
+        await AssertActorRoleAsync(database, audit.ActorUserId, ApplicationRoles.Staff);
     }
 
-    [Fact]
-    public async Task Edit_UsesQueryIdAndPreservesProtectedFieldsWithAuthenticatedAudit()
+    [Theory]
+    [InlineData(ListingStatus.Draft)]
+    [InlineData(ListingStatus.Available)]
+    [InlineData(ListingStatus.Missing)]
+    public async Task Edit_UsesQueryIdAndPreservesProtectedFieldsWithAuthenticatedAudit(ListingStatus status)
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Administrator);
+        await using (var setup = factory.Services.CreateAsyncScope())
+        {
+            await setup.ServiceProvider.GetRequiredService<ApplicationDbContext>().Listings.Where(listing => listing.Id == 1)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, status));
+        }
         var before = await ListingsAsync(factory);
         var original = before[0];
         var other = before[1];
@@ -119,6 +134,7 @@ public class StaffListingFormTests
         fields["__RequestVerificationToken"] = Token(form);
         AddForgedFields(fields);
         fields["id"] = fields["Input.Id"] = fields["ListingId"] = other.Id.ToString(CultureInfo.InvariantCulture);
+        var startedAt = DateTime.UtcNow;
         using var content = new FormUrlEncodedContent(fields);
 
         using var response = await client.PostAsync(path, content);
@@ -127,6 +143,7 @@ public class StaffListingFormTests
         await AssertOneTimeMessageAsync(client, "Listing updated.");
         await using var scope = factory.Services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.Equal(before.Length, await database.Listings.CountAsync());
         var edited = await database.Listings.SingleAsync(listing => listing.Id == original.Id);
         Assert.Equal(fields["Input.Title"], edited.Title);
         Assert.Equal(fields["Input.Description"], edited.Description);
@@ -135,11 +152,17 @@ public class StaffListingFormTests
         Assert.Equal(2, edited.CategoryId);
         Assert.Equal(original.Status, edited.Status);
         Assert.Equal(original.CreatedAtUtc, edited.CreatedAtUtc);
-        Assert.Equal(Snapshot(other), Snapshot(await database.Listings.SingleAsync(listing => listing.Id == other.Id)));
+        var unchanged = await database.Listings.AsNoTracking().Where(listing => listing.Id != original.Id)
+            .OrderBy(listing => listing.Id).ToArrayAsync();
+        Assert.Equal(before.Where(listing => listing.Id != original.Id).Select(Snapshot), unchanged.Select(Snapshot));
         var audit = await database.AuditEvents.SingleAsync();
+        Assert.NotEqual(int.MaxValue, audit.Id);
         Assert.Equal(original.Id, audit.ListingId);
         Assert.Equal(InventoryAuditActions.Updated, audit.Action);
         Assert.Equal(await database.Users.Select(user => user.Id).SingleAsync(), audit.ActorUserId);
+        Assert.InRange(audit.OccurredAtUtc, startedAt, DateTime.UtcNow);
+        Assert.DoesNotContain(fields["AuditEvents[0].Details"], audit.Details ?? string.Empty);
+        await AssertActorRoleAsync(database, audit.ActorUserId, ApplicationRoles.Administrator);
     }
 
     [Theory]
@@ -249,13 +272,15 @@ public class StaffListingFormTests
         await AssertNoWritesAsync(factory, before);
     }
 
-    [Fact]
-    public async Task AuditWriteFailure_RollsBackEditAndRedisplaysGenericError()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuditWriteFailure_RollsBackListingWriteAndRedisplaysGenericError(bool edit)
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
         var before = await ListingsAsync(factory);
-        var path = EditPath(before[0].Id);
+        var path = edit ? EditPath(before[0].Id) : CreatePath;
         var fields = ValidFields();
         fields["__RequestVerificationToken"] = Token(await GetFormAsync(client, path));
         await using (var scope = factory.Services.CreateAsyncScope())
@@ -296,9 +321,23 @@ public class StaffListingFormTests
         fields["Id"] = fields["Input.Id"] = int.MaxValue.ToString(CultureInfo.InvariantCulture);
         fields["Status"] = fields["Input.Status"] = nameof(ListingStatus.Archived);
         fields["CreatedAtUtc"] = fields["Input.CreatedAtUtc"] = "2000-01-01T00:00:00Z";
+        fields["Role"] = fields["Roles[0]"] = fields["Input.Roles[0]"] = ApplicationRoles.Student;
+        fields["Roles"] = fields["Input.Role"] = ApplicationRoles.Administrator;
+        fields["Roles[1]"] = fields["Input.Roles[1]"] = ApplicationRoles.Staff;
         fields["ActorUserId"] = fields["Input.ActorUserId"] = fields["UserId"] = fields["Input.UserId"]
             = fields["AuditEvents[0].ActorUserId"] = Guid.NewGuid().ToString();
+        fields["AuditEvents[0].Id"] = fields["AuditEvents[0].ListingId"] = int.MaxValue.ToString(CultureInfo.InvariantCulture);
         fields["AuditEvents[0].Action"] = "Forged audit action";
+        fields["AuditEvents[0].OccurredAtUtc"] = "2000-01-01T00:00:00Z";
+        fields["AuditEvents[0].Details"] = "Forged audit details";
+    }
+
+    private static async Task AssertActorRoleAsync(ApplicationDbContext database, string actorId, string expectedRole)
+    {
+        var membership = Assert.Single(await database.UserRoles.AsNoTracking().ToListAsync());
+        Assert.Equal(actorId, membership.UserId);
+        var role = await database.Roles.AsNoTracking().SingleAsync(role => role.Id == membership.RoleId);
+        Assert.Equal(expectedRole, role.Name);
     }
 
     private static async Task<string> GetFormAsync(HttpClient client, string path)

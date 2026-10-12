@@ -18,13 +18,26 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 ## Status
 
-The Week 3 account and authorization foundation is implemented on top of the Week 2 PostgreSQL schema. The home page reads sample inventory from the database.
+The Week 3 account and authorization foundation and Week 4 staff inventory workflow are implemented on top of PostgreSQL. The home page shows Available listings from the database, including the original sample items.
 
 Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
 
 Student, Staff, and Administrator roles are created at startup. Staff pages require Staff or Administrator; Admin pages require Administrator. The optional development administrator setup below promotes only an existing account. Email confirmation is disabled while there is no email service.
 
-Reservation actions and staff tools are still planned. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Staff and Administrators can open `/Staff/Inventory` to view every listing status, filter by status, and see the newest listings first. The dashboard links to Create and Edit. New listings always start as Draft; editing changes only the title, description, condition, optional size, and category. Draft, Available, and Missing listings can be edited. The server validates required fields, length limits, and category existence through `ListingService`.
+
+The lifecycle actions are:
+
+| Action | From | To |
+| --- | --- | --- |
+| Publish | Draft | Available |
+| Mark missing | Available | Missing |
+| Record walk-in collection | Available | Collected |
+| Archive | Draft, Available, Missing | Archived |
+
+Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
+
+Real image upload is not implemented; the inventory pages use a local SVG placeholder. Reservations, reservation pickup confirmation, and automatic expiration are future work. Held is reserved for that later reservation workflow and cannot be edited or changed by these Week 4 actions. Collected and Archived are terminal for this workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ## Running locally
 
@@ -36,7 +49,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the migration, and run the app:
+Then start the database, apply the existing migrations (including `AddInventoryAuditEvents`), and run the app:
 
 ```sh
 docker compose up -d --wait
@@ -79,7 +92,7 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 
 These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
 
-The home page is the current public catalog. Staff and Admin have minimal landing pages; the other catalog, account, inventory, pickup, and administration files are still empty placeholders without routes. The folder rules will apply as those pages are implemented. Reservation ownership checks remain future work.
+The home page is the current simple public catalog. Staff has a landing page and working inventory dashboard, Create, and Edit pages. Admin has a minimal landing page. The other catalog, account, pickup, and administration files are still empty placeholders without routes. The folder rules will apply as those pages are implemented. Reservation ownership checks remain future work.
 
 ## Automated checks
 
@@ -89,11 +102,14 @@ The tests require the .NET 10 SDK and restored NuGet packages. They do not requi
 dotnet restore LUThrift.slnx
 dotnet build LUThrift.slnx
 dotnet test LUThrift.slnx
+git diff --check
 ```
 
 The integration tests use `Microsoft.AspNetCore.Mvc.Testing` for .NET 10. `WebApplicationFactory<ApplicationDbContext>` uses the web assembly as its entry point, so `Program` does not need to be exposed. The test host runs in the Testing environment with SQLite in memory and temporary data-protection keys. Route tests use controlled Identity cookies with the normal authentication middleware; form tests submit requests with real antiforgery tokens. These substitutions live only in the test project.
 
-The suite covers the Staff/Admin access matrix, role-dependent navigation, Access Denied responses, registration overposting, login failures, logout protection, role initialization, development bootstrap restrictions, and registration rollback. The original database-model test is retained. Tests for empty account and catalog files check their folder conventions; they do not claim those routes exist. SQLite tests do not replace PostgreSQL-specific verification.
+The suite covers the Staff/Admin access matrix, role-dependent navigation, Access Denied responses, registration overposting, login failures, logout protection, role initialization, development bootstrap restrictions, and registration rollback. Week 4 tests cover inventory-page access, dashboard rendering and filtering, server-side validation, unknown categories, Draft creation, edits that preserve status, forged listing/role/audit fields, every allowed and rejected lifecycle transition, and Held protection. They also check audit recording and rollback, stale listing state, missing antiforgery tokens, and requests that try to change state through GET.
+
+The original database-model test is retained alongside audit relationship and deletion tests. Tests for empty account and catalog files check their folder conventions; they do not claim those routes exist. SQLite tests do not replace PostgreSQL-specific verification or a manual browser check.
 
 To compare the EF model with the migration snapshot without connecting to the development database, restore the local tool and use a placeholder connection in the Testing environment:
 
@@ -104,6 +120,17 @@ ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_mo
 ```
 
 The custom account workflow is limited to registration, login, logout, and access denial. Email delivery, campus sign-in, account deactivation, and application-specific profile/history pages remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
+
+### Manual Week 4 check
+
+Use the local Development setup above and disposable inventory records:
+
+1. While signed out, visit `/Staff/Inventory` and confirm it sends you to Login. Register a development account through `/Identity/Account/Register`. That ordinary Student account should receive Access Denied when opening inventory, Create, or Edit directly.
+2. Follow **Optional development administrator** above: store the existing account's email in `DevelopmentAdmin:Email`, restart in Development, then log out and back in. Confirm Staff navigation opens inventory. Remove the optional setting after assignment; the role stays assigned.
+3. Open Create. Submit missing required fields and an overlong title with client validation bypassed; confirm errors and category options remain. Submit valid fields and confirm a Draft listing and a success message. Edit it and confirm the status stays Draft. Check the image placeholder and status filter.
+4. Publish that listing, edit it while Available, mark it missing, edit it while Missing, then archive it. Confirm each status on the dashboard. Use separate listings to check Available → Archived, Draft → Archived, and Available → Collected through **Record walk-in collection**.
+5. Confirm Archived and Collected records remain listed but have no Edit or lifecycle buttons. Refresh after a successful POST and confirm it does not repeat the action. The automated tests check forged requests and Held protection; there is deliberately no UI action that creates a Held listing.
+6. Inspect `AuditEvents` with a local database viewer to confirm the listing, actor ID, action, UTC time, and transition details. There is no audit-history page yet. Keep the account email and all local credentials out of Git.
 
 ## Documentation
 

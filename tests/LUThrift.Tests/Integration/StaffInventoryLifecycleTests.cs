@@ -60,15 +60,21 @@ public class StaffInventoryLifecycleTests
     }
 
     [Theory]
-    [InlineData("Publish", ListingStatus.Draft, ListingStatus.Available, InventoryAuditActions.Published, "Listing published.")]
-    [InlineData("Archive", ListingStatus.Missing, ListingStatus.Archived, InventoryAuditActions.Archived, "Listing archived.")]
-    [InlineData("MarkMissing", ListingStatus.Available, ListingStatus.Missing, InventoryAuditActions.MarkedMissing, "Listing marked as missing.")]
-    [InlineData("RecordWalkInCollection", ListingStatus.Available, ListingStatus.Collected, InventoryAuditActions.WalkInCollected, "Walk-in collection recorded.")]
+    [InlineData(ApplicationRoles.Staff, "Publish", ListingStatus.Draft, ListingStatus.Available,
+        InventoryAuditActions.Published, "Listing published.")]
+    [InlineData(ApplicationRoles.Staff, "Archive", ListingStatus.Missing, ListingStatus.Archived,
+        InventoryAuditActions.Archived, "Listing archived.")]
+    [InlineData(ApplicationRoles.Staff, "MarkMissing", ListingStatus.Available, ListingStatus.Missing,
+        InventoryAuditActions.MarkedMissing, "Listing marked as missing.")]
+    [InlineData(ApplicationRoles.Staff, "RecordWalkInCollection", ListingStatus.Available, ListingStatus.Collected,
+        InventoryAuditActions.WalkInCollected, "Walk-in collection recorded.")]
+    [InlineData(ApplicationRoles.Administrator, "Publish", ListingStatus.Draft, ListingStatus.Available,
+        InventoryAuditActions.Published, "Listing published.")]
     public async Task Action_UsesNamedTransitionAndAuthenticatedActorDespiteForgedFields(
-        string handler, ListingStatus initial, ListingStatus expected, string auditAction, string message)
+        string role, string handler, ListingStatus initial, ListingStatus expected, string auditAction, string message)
     {
         using var factory = new AuthorizationWebApplicationFactory();
-        using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
+        using var client = await factory.CreateIdentityClientAsync(role);
         await SetStatusAsync(factory, initial);
         var before = await ListingsAsync(factory);
         var form = ActionForm(client, await DashboardAsync(client), handler, 1);
@@ -117,14 +123,18 @@ public class StaffInventoryLifecycleTests
         await AssertNoWritesAsync(factory, before);
     }
 
-    [Fact]
-    public async Task Action_RejectsMissingAntiforgeryTokenWithoutWrites()
+    [Theory]
+    [InlineData("Publish", ListingStatus.Draft)]
+    [InlineData("Archive", ListingStatus.Missing)]
+    [InlineData("MarkMissing", ListingStatus.Available)]
+    [InlineData("RecordWalkInCollection", ListingStatus.Available)]
+    public async Task Action_RejectsMissingAntiforgeryTokenWithoutWrites(string handler, ListingStatus initial)
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
-        await SetStatusAsync(factory, ListingStatus.Draft);
+        await SetStatusAsync(factory, initial);
         var before = await ListingsAsync(factory);
-        var form = ActionForm(client, await DashboardAsync(client), "Publish", 1);
+        var form = ActionForm(client, await DashboardAsync(client), handler, 1);
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>());
 
         using var response = await client.PostAsync(Attribute(form, "action"), content);
@@ -134,45 +144,73 @@ public class StaffInventoryLifecycleTests
     }
 
     [Theory]
-    [InlineData(null, "/Identity/Account/Login")]
-    [InlineData(ApplicationRoles.Student, "/Identity/Account/AccessDenied")]
-    public async Task Action_PostEnforcesStaffFolderPolicy(string? role, string redirectPath)
+    [InlineData(null, "Publish", ListingStatus.Draft, "/Identity/Account/Login")]
+    [InlineData(null, "Archive", ListingStatus.Missing, "/Identity/Account/Login")]
+    [InlineData(null, "MarkMissing", ListingStatus.Available, "/Identity/Account/Login")]
+    [InlineData(null, "RecordWalkInCollection", ListingStatus.Available, "/Identity/Account/Login")]
+    [InlineData(ApplicationRoles.Student, "Publish", ListingStatus.Draft, "/Identity/Account/AccessDenied")]
+    [InlineData(ApplicationRoles.Student, "Archive", ListingStatus.Missing, "/Identity/Account/AccessDenied")]
+    [InlineData(ApplicationRoles.Student, "MarkMissing", ListingStatus.Available, "/Identity/Account/AccessDenied")]
+    [InlineData(ApplicationRoles.Student, "RecordWalkInCollection", ListingStatus.Available, "/Identity/Account/AccessDenied")]
+    public async Task Action_PostEnforcesStaffFolderPolicy(
+        string? role, string handler, ListingStatus initial, string redirectPath)
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(role);
-        await SetStatusAsync(factory, ListingStatus.Draft);
+        await SetStatusAsync(factory, initial);
         var before = await ListingsAsync(factory);
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>());
 
-        using var response = await client.PostAsync(ActionPath("Publish", 1), content);
+        using var response = await client.PostAsync(ActionPath(handler, 1), content);
 
         AssertRedirect(client, response, redirectPath);
         await AssertNoWritesAsync(factory, before);
     }
 
-    [Theory]
-    [InlineData(false, "The listing could not be found.")]
-    [InlineData(true, "This action is not available for the listing's current status.")]
-    public async Task MissingOrNewlyHeldListing_ReturnsSafeErrorAndCannotBeUnlockedByForgedStatus(bool held, string message)
+    [Fact]
+    public async Task MissingListing_ReturnsSafeErrorWithoutWrites()
     {
         using var factory = new AuthorizationWebApplicationFactory();
         using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
         await SetStatusAsync(factory, ListingStatus.Draft);
         var form = ActionForm(client, await DashboardAsync(client), "Publish", 1);
-        if (held)
-        {
-            await SetStatusAsync(factory, ListingStatus.Held);
-        }
         var before = await ListingsAsync(factory);
         using var content = new FormUrlEncodedContent(ForgedFields(Token(form)));
 
-        using var response = await client.PostAsync(ActionPath("Publish", held ? 1 : int.MaxValue), content);
+        using var response = await client.PostAsync(ActionPath("Publish", int.MaxValue), content);
 
         AssertRedirect(client, response, DashboardPath);
         var html = await DashboardAsync(client);
-        Assert.Contains(message, WebUtility.HtmlDecode(html));
+        Assert.Contains("The listing could not be found.", WebUtility.HtmlDecode(html));
         Assert.Contains("role=\"alert\"", html);
         Assert.DoesNotContain("Listing published.", html);
+        await AssertNoWritesAsync(factory, before);
+    }
+
+    [Theory]
+    [InlineData("Publish", ListingStatus.Draft)]
+    [InlineData("Archive", ListingStatus.Missing)]
+    [InlineData("MarkMissing", ListingStatus.Available)]
+    [InlineData("RecordWalkInCollection", ListingStatus.Available)]
+    public async Task NewlyHeldListing_RejectsActionDespiteForgedStatus(string handler, ListingStatus initial)
+    {
+        using var factory = new AuthorizationWebApplicationFactory();
+        using var client = await factory.CreateIdentityClientAsync(ApplicationRoles.Staff);
+        await SetStatusAsync(factory, initial);
+        var form = ActionForm(client, await DashboardAsync(client), handler, 1);
+        await SetStatusAsync(factory, ListingStatus.Held);
+        var before = await ListingsAsync(factory);
+        var fields = ForgedFields(Token(form));
+        fields["Status"] = fields["Input.Status"] = initial.ToString();
+        using var content = new FormUrlEncodedContent(fields);
+
+        using var response = await client.PostAsync(Attribute(form, "action"), content);
+
+        AssertRedirect(client, response, DashboardPath);
+        var html = await DashboardAsync(client);
+        Assert.Contains("This action is not available for the listing's current status.", WebUtility.HtmlDecode(html));
+        Assert.Contains("role=\"alert\"", html);
+        Assert.DoesNotContain("alert-success", html);
         await AssertNoWritesAsync(factory, before);
     }
 
