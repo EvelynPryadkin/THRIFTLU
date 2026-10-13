@@ -63,6 +63,7 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddScoped<RoleInitializer>();
 builder.Services.AddScoped<ListingService>();
+builder.Services.AddScoped<CatalogService>();
 
 var app = builder.Build();
 
