@@ -1,20 +1,10 @@
 ﻿@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Sample inventory";
+    ViewData["Title"] = "Home";
 }
 
 <h1>LU Thrift</h1>
-<p>Sample items from the local database.</p>
-
-<ul>
-    @foreach (var listing in Model.Listings)
-    {
-        <li>
-            <strong>@listing.Title</strong> —
-            Category: @listing.Category.Name;
-            Condition: @listing.Condition;
-            Status: @listing.Status
-        </li>
-    }
-</ul>
+<p class="lead">Find free items from Lawrence University's thrift room.</p>
+<p>Browse what's available before you visit the thrift room in Colman Hall.</p>
+<a asp-page="/Thrift/Index" class="btn btn-primary">Browse items</a>

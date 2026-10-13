@@ -1,0 +1,39 @@
+@page
+@model LUThrift.Web.Pages.Thrift.IndexModel
+@{
+    ViewData["Title"] = "Browse items";
+}
+
+<h1>@ViewData["Title"]</h1>
+<p class="mb-4">Find free items from the LU Thrift room.</p>
+
+@if (Model.Listings.Count == 0)
+{
+    <p>No items are available right now.</p>
+    <p>Please check back soon.</p>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-4">
+        @foreach (var listing in Model.Listings)
+        {
+            <div class="col">
+                <article class="card h-100" aria-labelledby="listing-title-@listing.Id">
+                    <div class="card-body">
+                        <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
+                        <h2 class="card-title h5 text-break" id="listing-title-@listing.Id">@listing.Title</h2>
+                        <span class="badge bg-success mb-3">Available</span>
+                        <dl class="mb-0">
+                            <dt>Category</dt>
+                            <dd class="text-break">@listing.CategoryName</dd>
+                            <dt>Condition</dt>
+                            <dd class="text-break">@listing.Condition</dd>
+                            <dt>Size</dt>
+                            <dd class="text-break mb-0">@(listing.Size ?? "Not specified")</dd>
+                        </dl>
+                    </div>
+                </article>
+            </div>
+        }
+    </div>
+}

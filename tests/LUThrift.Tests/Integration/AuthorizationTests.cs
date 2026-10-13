@@ -61,6 +61,15 @@ public class AuthorizationTests(AuthorizationWebApplicationFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(expectedStaffLink, HasLink(html, "/Staff"));
         Assert.Equal(expectedAdminLink, HasLink(html, "/Admin"));
+        var navigation = Regex.Match(html, @"<nav\b[^>]*>([\s\S]*?)</nav>", RegexOptions.IgnoreCase).Groups[1].Value;
+        Assert.True(HasLink(navigation, "/Thrift"));
+        Assert.Contains("Browse items", navigation);
+        var main = Regex.Match(html, @"<main\b[^>]*>([\s\S]*?)</main>", RegexOptions.IgnoreCase).Groups[1].Value;
+        Assert.Matches(@"<h1\b[^>]*>\s*LU Thrift\s*</h1>", main);
+        Assert.True(HasLink(main, "/Thrift"));
+        Assert.Contains("Browse items", main);
+        Assert.DoesNotContain("<article", main, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Blue hoodie", main);
     }
 
     [Theory]
