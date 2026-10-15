@@ -1,0 +1,31 @@
+@page "{id:int}"
+@model LUThrift.Web.Pages.Thrift.DetailsModel
+@using LUThrift.Web.Models
+@{
+    var listing = Model.Listing;
+    ViewData["Title"] = listing.Title;
+    var statusLabel = listing.Status == ListingStatus.Held ? "Reserved" : "Available";
+}
+
+<a asp-page="./Index" class="d-inline-block mb-3">Back to catalog</a>
+<h1 class="text-break mb-4">@listing.Title</h1>
+
+<div class="row g-4">
+    <div class="col-sm-4 col-lg-3">
+        <img src="~/images/listing-placeholder.svg" alt="No image available" width="192" height="192" class="img-fluid" />
+    </div>
+    <div class="col-sm-8 col-lg-9">
+        <dl>
+            <dt>Category</dt>
+            <dd class="text-break">@listing.CategoryName</dd>
+            <dt>Condition</dt>
+            <dd class="text-break">@listing.Condition</dd>
+            <dt>Size</dt>
+            <dd class="text-break">@(listing.Size ?? "Not specified")</dd>
+            <dt>Status</dt>
+            <dd><span class="badge bg-secondary">@statusLabel</span></dd>
+        </dl>
+        <h2 class="h5">Description</h2>
+        <p class="text-break">@listing.Description</p>
+    </div>
+</div>

@@ -69,7 +69,18 @@ public class PublicCatalogPageTests
             Assert.Contains(listing.Size ?? "Not specified", decoded);
             Assert.Contains("Available", decoded);
             Assert.DoesNotContain(category.Name, card);
-            Assert.Empty(Tags(card, "a"));
+            var detailsLink = Assert.Single(Regex.Matches(card, @"<a\b[^>]*>([\s\S]*?)</a>",
+                RegexOptions.IgnoreCase).Cast<Match>());
+            Assert.Equal("View details", WebUtility.HtmlDecode(detailsLink.Groups[1].Value).Trim());
+            var detailsPath = Attribute(detailsLink.Value, "href");
+            Assert.Equal($"/Thrift/Details/{listing.Id}", detailsPath);
+            Assert.Contains(listing.Title, Attribute(detailsLink.Value, "aria-label"));
+            using var detailsResponse = await client.GetAsync(detailsPath);
+            Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+            var detailsHtml = await detailsResponse.Content.ReadAsStringAsync();
+            var detailsHeading = Assert.Single(Regex.Matches(detailsHtml, @"<h1\b[^>]*>([\s\S]*?)</h1>",
+                RegexOptions.IgnoreCase).Cast<Match>());
+            Assert.Equal(listing.Title, WebUtility.HtmlDecode(detailsHeading.Groups[1].Value).Trim());
             var heading = Assert.Single(Tags(card, "h[1-6]"));
             Assert.Equal(Attribute(card, "aria-labelledby"), Attribute(heading, "id"));
             var image = Assert.Single(Tags(card, "img"));
@@ -88,8 +99,6 @@ public class PublicCatalogPageTests
         {
             Assert.DoesNotContain(listing.Title, html);
         }
-        Assert.DoesNotContain(Tags(html, "a"), link =>
-            Attribute(link, "href").StartsWith("/Thrift/Details", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(placeholderPath);
         using var placeholder = await client.GetAsync(placeholderPath);
         Assert.Equal(HttpStatusCode.OK, placeholder.StatusCode);

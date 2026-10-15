@@ -32,6 +32,10 @@ else
                             <dd class="text-break mb-0">@(listing.Size ?? "Not specified")</dd>
                         </dl>
                     </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <a asp-page="./Details" asp-route-id="@listing.Id" class="btn btn-outline-primary"
+                           aria-label="View details for @listing.Title">View details</a>
+                    </div>
                 </article>
             </div>
         }
