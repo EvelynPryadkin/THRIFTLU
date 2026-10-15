@@ -1,5 +1,7 @@
 @page
 @model LUThrift.Web.Pages.Thrift.IndexModel
+@using LUThrift.Web.InputModels
+@using LUThrift.Web.Models
 @{
     ViewData["Title"] = "Browse items";
 }
@@ -7,10 +9,73 @@
 <h1>@ViewData["Title"]</h1>
 <p class="mb-4">Find free items from the LU Thrift room.</p>
 
-@if (Model.Listings.Count == 0)
+<form method="get" asp-page="./Index" class="row g-3 mb-4">
+    <div class="col-12">
+        <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+    </div>
+    <div class="col-sm-6 col-lg-4">
+        <label asp-for="Filter.Search" class="form-label">Search items</label>
+        <input asp-for="Filter.Search" type="search" class="form-control" maxlength="150" aria-describedby="search-error" />
+        <span asp-validation-for="Filter.Search" id="search-error" class="text-danger"></span>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <label asp-for="Filter.CategoryId" class="form-label">Category</label>
+        <select asp-for="Filter.CategoryId" class="form-select" aria-describedby="category-error">
+            <option value="">All categories</option>
+            @if (Model.Filter.CategoryId is > 0 && !Model.Categories.Any(category => category.Id == Model.Filter.CategoryId))
+            {
+                <option value="@Model.Filter.CategoryId">Unknown category</option>
+            }
+            @foreach (var category in Model.Categories)
+            {
+                <option value="@category.Id">@category.Name</option>
+            }
+        </select>
+        <span asp-validation-for="Filter.CategoryId" id="category-error" class="text-danger"></span>
+    </div>
+    <div class="col-sm-6 col-lg-2">
+        <label asp-for="Filter.Size" class="form-label">Size</label>
+        <select asp-for="Filter.Size" class="form-select" aria-describedby="size-error">
+            <option value="">All sizes</option>
+            @if (!string.IsNullOrWhiteSpace(Model.Filter.Size) && !Model.Sizes.Contains(Model.Filter.Size, StringComparer.Ordinal))
+            {
+                <option value="@Model.Filter.Size">@Model.Filter.Size</option>
+            }
+            @foreach (var size in Model.Sizes)
+            {
+                <option value="@size">@size</option>
+            }
+        </select>
+        <span asp-validation-for="Filter.Size" id="size-error" class="text-danger"></span>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <label asp-for="Filter.Availability" class="form-label">Availability</label>
+        <select asp-for="Filter.Availability" asp-items="Html.GetEnumSelectList<CatalogAvailability>()"
+                class="form-select" aria-describedby="availability-error"></select>
+        <span asp-validation-for="Filter.Availability" id="availability-error" class="text-danger"></span>
+    </div>
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary">Apply filters</button>
+        <a asp-page="./Index" class="btn btn-outline-secondary">Clear filters</a>
+    </div>
+</form>
+
+@if (!ViewData.ModelState.IsValid)
 {
-    <p>No items are available right now.</p>
-    <p>Please check back soon.</p>
+    <p>Check the filters and try again.</p>
+}
+else if (Model.Listings.Count == 0)
+{
+    @if (Model.HasFilters)
+    {
+        <p>No items match these filters.</p>
+        <p>Try different filters or clear them to see more items.</p>
+    }
+    else
+    {
+        <p>No items are available right now.</p>
+        <p>Please check back soon.</p>
+    }
 }
 else
 {
@@ -22,7 +87,7 @@ else
                     <div class="card-body">
                         <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
                         <h2 class="card-title h5 text-break" id="listing-title-@listing.Id">@listing.Title</h2>
-                        <span class="badge bg-success mb-3">Available</span>
+                        <span class="badge @(listing.Status == ListingStatus.Held ? "bg-secondary" : "bg-success") mb-3">@(listing.Status == ListingStatus.Held ? "Reserved" : "Available")</span>
                         <dl class="mb-0">
                             <dt>Category</dt>
                             <dd class="text-break">@listing.CategoryName</dd>
