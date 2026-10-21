@@ -7,7 +7,7 @@
     var statusLabel = listing.Status == ListingStatus.Held ? "Reserved" : "Available";
 }
 
-<a asp-page="./Index" class="d-inline-block mb-3">Back to catalog</a>
+<a asp-page="./Index" asp-all-route-data="Model.CatalogRouteValues" class="d-inline-block mb-3">Back to catalog</a>
 <h1 class="text-break mb-4">@listing.Title</h1>
 
 <div class="row g-4">

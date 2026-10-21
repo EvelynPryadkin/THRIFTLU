@@ -15,11 +15,15 @@ public class CatalogService(ApplicationDbContext context)
 
     public async Task<IReadOnlyList<CatalogListingSummary>> GetListingsAsync(
         CatalogFilterInput filter, CancellationToken cancellationToken = default)
+        => (await GetPageAsync(filter, cancellationToken: cancellationToken)).Items;
+
+    public async Task<CatalogListingPage> GetPageAsync(
+        CatalogFilterInput filter, int pageNumber = 1, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Validator.TryValidateObject(filter, new ValidationContext(filter), null, validateAllProperties: true))
         {
-            return [];
+            return new CatalogListingPage([], 0, 1);
         }
 
         // Every filter starts within the public catalog, including the "All" option.
@@ -59,10 +63,17 @@ public class CatalogService(ApplicationDbContext context)
             query = query.Where(listing => listing.Size == size);
         }
 
-        return await query
+        var totalCount = await query.CountAsync(cancellationToken);
+        var totalPages = totalCount == 0 ? 1 : (totalCount - 1) / CatalogListingPage.PageSize + 1;
+        var currentPage = Math.Clamp(pageNumber, 1, totalPages);
+        // Clamp before multiplying, so even int.MaxValue cannot overflow the offset.
+        var offset = (currentPage - 1) * CatalogListingPage.PageSize;
+
+        var items = await query
             .OrderByDescending(listing => listing.CreatedAtUtc)
             .ThenByDescending(listing => listing.Id)
-            .Take(12)
+            .Skip(offset)
+            .Take(CatalogListingPage.PageSize)
             .Select(listing => new CatalogListingSummary(
                 listing.Id,
                 listing.Title,
@@ -71,6 +82,8 @@ public class CatalogService(ApplicationDbContext context)
                 listing.Size,
                 listing.Status))
             .ToListAsync(cancellationToken);
+
+        return new CatalogListingPage(items, totalCount, currentPage);
     }
 
     public async Task<IReadOnlyList<CatalogCategoryOption>> GetCategoriesAsync(

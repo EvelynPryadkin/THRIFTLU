@@ -1,3 +1,4 @@
+using System.Globalization;
 using LUThrift.Web.InputModels;
 using LUThrift.Web.Services;
 using LUThrift.Web.ViewModels;
@@ -11,14 +12,25 @@ public class IndexModel(CatalogService catalogService) : PageModel
     [BindProperty(SupportsGet = true)]
     public CatalogFilterInput Filter { get; set; } = new();
 
-    public IReadOnlyList<CatalogListingSummary> Listings { get; private set; } = [];
+    public CatalogListingPage Catalog { get; private set; } = new([], 0, 1);
+    public IReadOnlyList<CatalogListingSummary> Listings => Catalog.Items;
     public IReadOnlyList<CatalogCategoryOption> Categories { get; private set; } = [];
     public IReadOnlyList<string> Sizes { get; private set; } = [];
 
     public bool HasFilters => Filter.Search is not null || Filter.CategoryId.HasValue
         || Filter.Size is not null || Filter.Availability != CatalogAvailability.Available;
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public Dictionary<string, string> RouteValues(int pageNumber)
+        => CatalogNavigation.RouteValues(Filter, pageNumber);
+
+    public Dictionary<string, string> DetailsRouteValues(int listingId)
+    {
+        var values = RouteValues(Catalog.PageNumber);
+        values["id"] = listingId.ToString(CultureInfo.InvariantCulture);
+        return values;
+    }
+
+    public async Task<IActionResult> OnGetAsync([FromQuery] string? pageNumber, CancellationToken cancellationToken)
     {
         Categories = await catalogService.GetCategoriesAsync(cancellationToken);
         Sizes = await catalogService.GetSizesAsync(cancellationToken);
@@ -39,7 +51,7 @@ public class IndexModel(CatalogService catalogService) : PageModel
             return Page();
         }
 
-        Listings = await catalogService.GetListingsAsync(Filter, cancellationToken);
+        Catalog = await catalogService.GetPageAsync(Filter, CatalogNavigation.ParsePageNumber(pageNumber), cancellationToken);
         return Page();
     }
 }

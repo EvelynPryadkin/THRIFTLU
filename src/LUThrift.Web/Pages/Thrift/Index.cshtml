@@ -60,6 +60,11 @@
     </div>
 </form>
 
+@if (ViewData.ModelState.IsValid)
+{
+    <p id="catalog-summary">@Model.Catalog.TotalCount @(Model.Catalog.TotalCount == 1 ? "item" : "items") found. Page @Model.Catalog.PageNumber of @Model.Catalog.TotalPages.</p>
+}
+
 @if (!ViewData.ModelState.IsValid)
 {
     <p>Check the filters and try again.</p>
@@ -98,11 +103,42 @@ else
                         </dl>
                     </div>
                     <div class="card-footer bg-transparent border-0 pt-0">
-                        <a asp-page="./Details" asp-route-id="@listing.Id" class="btn btn-outline-primary"
+                        <a asp-page="./Details" asp-all-route-data="Model.DetailsRouteValues(listing.Id)" class="btn btn-outline-primary"
                            aria-label="View details for @listing.Title">View details</a>
                     </div>
                 </article>
             </div>
         }
     </div>
+}
+
+@if (ViewData.ModelState.IsValid)
+{
+    <nav aria-label="Catalog pagination" class="mt-4">
+        <ul class="pagination">
+            @if (Model.Catalog.HasPreviousPage)
+            {
+                <li class="page-item">
+                    <a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Catalog.PageNumber - 1)"
+                       class="page-link" rel="prev">Previous</a>
+                </li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Previous</span></li>
+            }
+            <li class="page-item active"><span class="page-link" aria-current="page">Page @Model.Catalog.PageNumber of @Model.Catalog.TotalPages</span></li>
+            @if (Model.Catalog.HasNextPage)
+            {
+                <li class="page-item">
+                    <a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Catalog.PageNumber + 1)"
+                       class="page-link" rel="next">Next</a>
+                </li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Next</span></li>
+            }
+        </ul>
+    </nav>
 }
