@@ -177,20 +177,32 @@ Use the local Development setup above and disposable inventory records:
 
 ### Week 5 browser checklist
 
-Use disposable inventory records and the existing local Development setup. Browser checks are separate from HTTP tests; unchecked items below remain pending until performed in a browser.
+Use disposable inventory records and the existing local Development setup. The checklist below was completed on October 25, 2026 in Chrome with viewport emulation, keyboard input, and screenshot inspection. These are browser checks against the running Development app, separate from the HTTP test suite.
 
-- [ ] At approximately **375px**, **768px**, and a desktop width, inspect the home page, catalog, filtered results, and details. Check card layout, long titles/descriptions, missing sizes, placeholder images, and horizontal overflow.
-- [ ] Use only the keyboard to open the mobile navigation, reach Browse items, operate every filter, submit, clear, follow Previous/Next, open details, and return. Check visible focus, labels, selected values, and disabled pagination controls.
-- [ ] Repeat browsing signed out and as an ordinary Student. Confirm Student access to Staff/Admin URLs is denied and signed-out access redirects to Login.
-- [ ] Combine title, category, size, and availability filters with at least 25 matching temporary items. Browse three pages, open details from page 2, and return to the same selections and page. Submit different filters and confirm page 1. Check empty results and malformed/unknown detail URLs.
-- [ ] As Staff or Administrator, create a temporary **Draft** and confirm it is absent from the catalog and returns 404 by direct detail URL. Publish it and confirm it appears. Using separate published items, mark one **Missing**, record one walk-in **Collected**, and **Archive** another; confirm each disappears and its detail URL returns 404. Keep these records archived rather than deleting them.
-- [ ] Confirm Held appears as Reserved only in the appropriate filter and direct public details, with no owner information. Use a prepared test fixture for Held; there is intentionally no staff action to place an item on hold.
+- [x] At approximately **375px**, **768px**, and a desktop width, inspect the home page, catalog, filtered results, and details. Check card layout, long titles/descriptions, missing sizes, placeholder images, and horizontal overflow.
+- [x] Use only the keyboard to open the mobile navigation, reach Browse items, operate every filter, submit, clear, follow Previous/Next, open details, and return. Check visible focus, labels, selected values, and disabled pagination controls.
+- [x] Repeat browsing signed out and as an ordinary Student. Confirm Student access to Staff/Admin URLs is denied and signed-out access redirects to Login.
+- [x] Combine title, category, size, and availability filters with at least 25 matching temporary items. Browse three pages, open details from page 2, and return to the same selections and page. Submit different filters and confirm page 1. Check empty results and malformed/unknown detail URLs.
+- [x] As Staff or Administrator, create a temporary **Draft** and confirm it is absent from the catalog and returns 404 by direct detail URL. Publish it and confirm it appears. Using separate published items, mark one **Missing**, record one walk-in **Collected**, and **Archive** another; confirm each disappears and its detail URL returns 404. Retain these records and their history instead of deleting them; Missing items can subsequently be archived, while Collected is terminal.
+- [x] Confirm Held appears as Reserved only in the appropriate filter and direct public details, with no owner information. Use a prepared test fixture for Held; there is intentionally no staff action to place an item on hold.
 
 ### Week 5 verification record
 
 On **October 20, 2026**, `dotnet restore LUThrift.slnx` passed, `dotnet build LUThrift.slnx` finished with **0 warnings and 0 errors**, and the complete `dotnet test LUThrift.slnx --no-build` run passed **277 tests, 0 failed, 0 skipped**, with `LUTHRIFT_CATALOG_TEST_CONNECTION` pointing to a disposable local PostgreSQL 16 database. This includes both PostgreSQL tests as well as the isolated SQLite and HTTP tests. The documented EF model check reported **no changes since the last migration**.
 
-`git diff --check` passed. Chrome reached the temporary Testing host, but its CSS and JavaScript assets were not served correctly, so the browser checklist above remains **pending**, not passed. It needs a repeat run with working static assets.
+The October 20 whitespace check passed, but the temporary Testing host did not serve its CSS and JavaScript correctly. That browser attempt was not counted as a pass.
+
+On **October 25, 2026**, verification used the documented **Development** HTTPS launch profile against local PostgreSQL **18.6**. The existing `AddInventoryAuditEvents` migration first had to be applied using the setup command above. No new migration was created. An existing HTTP process occupied port 5278, so the verification host used `dotnet run --project src/LUThrift.Web --launch-profile https -- --urls https://localhost:7131`, leaving that process alone. Certificate validation was bypassed only in the isolated localhost verification browser and requests; system trust was not changed.
+
+All seven rendered asset URLs returned **HTTP 200** with the expected content types: Bootstrap CSS and JavaScript, site CSS and JavaScript, scoped CSS, jQuery, and the placeholder SVG. The empty `site.js` is intentional. Chrome loaded the styles and images, and the Bootstrap navigation toggle worked. The earlier asset failure came from the standalone Testing launch setup; no application static-asset change was needed.
+
+The browser checklist passed in **Chrome 155.0.8059.85**, driven through its debugging protocol, at **375px, 768px, and 1440px**. Screenshots and measured page bounds showed no horizontal overflow, including a 150-character title, 2,000-character description, and missing size. Keyboard checks covered the mobile menu, every filter, submit/clear, paging, details, and return links; focus indicators remained visible after their CSS transitions. Native dropdowns were operated with keyboard type-ahead. These checks used emulated viewport sizes, not physical mobile devices, and do not claim Safari, Firefox, or screen-reader coverage.
+
+Signed-out and Student browsing passed, including Staff/Admin login redirects or access denial. Combined filters on PostgreSQL matched case differences and literal `%`, `_`, and `!`, returned 25 items across pages of **12, 12, and 1**, and preserved selections through details and back navigation. Empty results, invalid filters, page boundaries, hidden/unknown detail 404s, encoded text, and Reserved visibility passed. Database snapshots before and after browsing matched for all listings, audit events, and reservations.
+
+Three further listings were created and published through the Staff browser forms, then respectively marked Missing, Collected, and Archived. Each appeared only while Available, and PostgreSQL recorded the nine expected creation/transition audits with the staff actor and UTC timestamps. The four original listings remained unchanged. After approved cleanup, all 36 labelled fixtures remain as Archived or Collected records with their audit history, and the two synthetic accounts have been removed. The single prepared Held fixture was archived by a scoped maintenance query with its own audit event; this did not add or exercise a staff Held transition. No listing was deleted and no existing inventory was reset.
+
+The October 25 restore passed; the build finished with **0 warnings and 0 errors**. `dotnet test LUThrift.slnx --no-build --logger 'console;verbosity=minimal'` passed **275 tests, 0 failed, 2 skipped, 277 total**. The two optional PostgreSQL tests were skipped because their dedicated test connection was not supplied for this run; the browser checks above used the actual Development PostgreSQL database. The documented safe EF check again reported **no changes since the last migration**, and `git diff --check` passed. No application-code change was needed during this browser review.
 
 Week 5 acceptance:
 
@@ -199,9 +211,9 @@ Week 5 acceptance:
 - [x] Combined search/filters, pagination, and details/back navigation covered by passing SQLite/HTTP and PostgreSQL checks.
 - [x] Inventory, audit, and reservation snapshots unchanged by browsing; staff lifecycle visibility covered by passing HTTP tests.
 - [x] Restore, build, complete test suite, whitespace check, and safe pending-model-change check passed.
-- [ ] Responsive layouts, keyboard navigation, visible focus, overflow, and the browser lifecycle walkthrough completed with working assets.
+- [x] Responsive layouts, keyboard navigation, visible focus, overflow, and the browser lifecycle walkthrough completed with working assets.
 
-Week 5's automated acceptance checks are complete; browser acceptance is still pending. Details are recorded in [the development log](docs/development-log.md). Reservations remain Week 6 work; real image upload remains a later checkpoint.
+Week 5's automated and browser acceptance checks are complete within the scope recorded above. Details are recorded in [the development log](docs/development-log.md). Reservations remain Week 6 work; real image upload remains a later checkpoint.
 
 ## Documentation
 
