@@ -37,7 +37,7 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Reservations, reservation pickup confirmation, and automatic expiration remain Week 6 work. Held is reserved for that reservation workflow and cannot be edited or changed by these Week 4 actions. Collected and Archived are terminal for this workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 now includes reservation creation in the application service; reservation pages, pickup confirmation, cancellation, and expiration processing remain unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
@@ -53,6 +53,14 @@ Previous/Next links preserve the filters, submitting new filters resets to page 
 
 The request flow is browser GET → Razor PageModel → `CatalogService` → EF Core → PostgreSQL. The service applies public visibility and all filters before counting or fetching a page with `Skip` and `Take`. It projects only display fields with no tracking. Browsing does not save listings, reservations, or audit events, and there is no reservation action in this catalog yet.
 
+### Reservation creation foundation (Week 6 checkpoints 1–2)
+
+`ReservationService.CreateAsync` accepts a listing-only input and a separately supplied authenticated principal. It checks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. IDs, roles, deadlines, and audit values cannot be submitted through the input model. This service is registered in DI, but no reservation endpoint or form is connected yet.
+
+PostgreSQL transactions lock the student account first, then the listing, so both same-student and same-item races are coordinated across application instances. Time is read after lock waits and checked again before saving. A filtered unique index also prevents multiple stored Active reservations for one listing. See [reservation rules](docs/reservation-rules.md) for the transaction, conflict, and exact-deadline behavior. Expired stored Active rows remain protected until checkpoint 3 implements reconciliation.
+
+No official pickup hours have been invented. `Reservations:WeeklyPickupIntervals` is empty by default, so creation returns unavailable while public browsing works. Configure confirmed hours, breaks, and closed dates using the documented reservation settings and restart the app. The default campus timezone is America/Chicago; persisted times are UTC.
+
 ## Running locally
 
 You'll need the .NET 10 SDK and Docker. On a fresh checkout, copy .env.example to .env and choose a local database password. Set the same password in the web project's user secrets, replacing YOUR_LOCAL_PASSWORD below:
@@ -63,7 +71,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the existing migrations (including `AddInventoryAuditEvents`), and run the app:
+Then start the database, apply the migrations (including `AddInventoryAuditEvents` and `EnforceSingleActiveReservationPerListing`), and run the app:
 
 ```sh
 docker compose up -d --wait
@@ -73,6 +81,16 @@ dotnet run --project src/LUThrift.Web --launch-profile https
 ```
 
 Open https://localhost:7131. The local development certificate may need to be trusted in your browser. The automated checks below run independently of this local database.
+
+The reservation-index migration stops and reports listing IDs if existing records contain multiple stored Active reservations for one listing. It does not delete or rewrite them. Review those conflicts before retrying. This read-only query identifies all affected listing IDs, including expired rows whose stored status is still Active:
+
+```sql
+SELECT "ListingId", COUNT(*)
+FROM "Reservations"
+WHERE "Status" = 'Active'
+GROUP BY "ListingId"
+HAVING COUNT(*) > 1;
+```
 
 ### Optional development administrator
 
@@ -151,6 +169,33 @@ docker stop luthrift-catalog-check
 ```
 
 The password-free setup above is only for this disposable database bound to loopback. It is not the application database setup. Stopping the container removes its temporary storage.
+
+### Optional PostgreSQL reservation verification
+
+`ReservationConcurrencyTests` requires `LUTHRIFT_RESERVATION_TEST_CONNECTION`, a loopback host, and the dedicated database name `luthrift_reservation_test`. Each case creates a randomly named schema, applies the real migrations, and drops only its own schema. It never uses user secrets, resets the development database, or deletes existing records. The database user needs permission to create and drop these test schemas.
+
+For a disposable PostgreSQL 18 instance with no persistent storage:
+
+```sh
+docker run --rm -d --name luthrift-reservation-check \
+  --publish 127.0.0.1::5432 --tmpfs /var/lib/postgresql:rw \
+  -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_USER=luthrift_reservation_test -e POSTGRES_DB=luthrift_reservation_test postgres:18-bookworm
+docker exec luthrift-reservation-check pg_isready -U luthrift_reservation_test -d luthrift_reservation_test
+docker port luthrift-reservation-check 5432/tcp
+```
+
+After `pg_isready` reports accepting connections, substitute the printed port:
+
+```sh
+LUTHRIFT_RESERVATION_TEST_CONNECTION='Host=127.0.0.1;Port=PORT_FROM_DOCKER;Database=luthrift_reservation_test;Username=luthrift_reservation_test' \
+  dotnet test LUThrift.slnx
+docker stop luthrift-reservation-check
+```
+
+Trust authentication here is confined to this temporary loopback database. The PostgreSQL tests observe actual lock waits for both concurrency cases and pickup cutoff changes; they also verify duplicate handling, the filtered index, audit-failure rollback, and migration refusal without data loss. SQLite tests cover input/account rejection, limits and exact deadlines, server-owned fields, final time checks, and rollback on either insert failure. Neither set adds reservation pages or expiration processing.
+
+Checkpoint 2 verification on **October 25, 2026**: restore passed; the solution build had **0 warnings and 0 errors**; the complete suite with the reservation PostgreSQL connection passed **376 tests, 0 failed, 2 skipped, 378 total**. All eight reservation PostgreSQL cases ran on a dedicated disposable PostgreSQL **18.6** instance. The two optional catalog PostgreSQL tests were skipped because their separate connection was not supplied. All test schemas were removed afterward. The safe EF check reported no pending model changes and `git diff --check` passed. A read-only development-database check found zero conflicting listing groups; the new migration was not applied to that database during verification.
 
 ### Checking the EF model
 

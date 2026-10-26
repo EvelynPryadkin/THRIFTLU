@@ -69,6 +69,7 @@ builder.Services.Configure<ReservationOptions>(builder.Configuration.GetSection(
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ReservationPolicy>();
 builder.Services.AddSingleton<PickupHoursEligibility>();
+builder.Services.AddScoped<ReservationService>();
 
 var app = builder.Build();
 

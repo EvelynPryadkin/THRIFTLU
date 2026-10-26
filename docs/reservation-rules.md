@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoint 1 implements policy and pickup-hours eligibility only; reservation creation, cancellation, expiration processing, and pickup confirmation are not implemented yet.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–2 implement policy, pickup-hours eligibility, and atomic creation in `ReservationService`. There is no reservation form yet. Cancellation, expiration processing, and pickup confirmation remain future work.
 
 ## Reservation Duration
 
@@ -53,9 +53,29 @@ Once staff confirm the schedule, each `WeeklyPickupIntervals` entry needs:
 
 Intervals must stay within one calendar day. Overlapping, duplicate, or touching intervals are invalid; write a continuous open span as one interval instead. Invalid weekdays, times, dates, or timezone IDs make the schedule unavailable rather than guessing a correction. Blank or incomplete intervals are invalid too. Overnight hours and date-specific replacement hours are outside this checkpoint.
 
-`PickupHoursEligibility` reads one instant from injected `TimeProvider`, converts it to the configured campus timezone to select the date and weekday, and converts that day's open-interval endpoints back to UTC. It adds one elapsed hour to the captured UTC instant and checks that both start and deadline fit the same interval. Eligible results contain UTC start and expiration values; ineligible results contain a reason and no reservation window. This is a read-only eligibility calculation, not a booking or a promise that an item remains available. A future reservation operation must recheck eligibility, the student's active count, and the listing together when accepting the reservation.
+`PickupHoursEligibility` reads one instant from injected `TimeProvider`, converts it to the configured campus timezone to select the date and weekday, and converts that day's open-interval endpoints back to UTC. It adds one elapsed hour to the captured UTC instant and checks that both start and deadline fit the same interval. Eligible results contain UTC start and expiration values; ineligible results contain a reason and no reservation window. This is a read-only eligibility calculation, not a booking or a promise that an item remains available. `ReservationService` rechecks eligibility, the student's active count, and the listing inside its creation transaction.
 
 If a configured endpoint falls in a daylight-saving gap or repeated hour, that day's schedule is unavailable: the helper does not guess which instant staff intended. When endpoints are unambiguous, an interval may include a clock change; duration is still measured in UTC. Normal winter and summer dates therefore use the campus timezone's applicable offset rather than a hard-coded offset. All persisted reservation timestamps remain UTC in the existing database columns.
+
+## Creation and Database Coordination
+
+`CreateReservationInput` contains only `ListingId`. A future PageModel must pass its authenticated `User` separately to `ReservationService.CreateAsync`; it must not construct that identity from form fields. The service reads the user ID from that principal and verifies an existing, active account with current Student membership in the database. Role claims alone are insufficient. Creation times, the deadline, status, and audit fields come from the server.
+
+PostgreSQL creation uses one `ReadCommitted` transaction and a consistent lock order:
+
+1. Lock the student's `AspNetUsers` row with `SELECT ... FOR UPDATE`.
+2. Lock the requested listing row with `SELECT ... FOR UPDATE`.
+3. Check Student membership, pickup eligibility with fresh server time, listing availability, existing stored Active reservations for that listing, and the student's active count.
+4. Conditionally change Available to Held. Recheck pickup eligibility immediately before saving; if the clock moved backward, return a retry result instead of trusting a count from a later instant.
+5. Save the Active reservation and `ListingReserved` audit, then commit. The audit contains the listing ID, authenticated actor ID, UTC time, and fixed transition details. Any failed write or final eligibility check rolls back the entire operation.
+
+The user lock serializes competing requests for different items by the same student. The listing lock coordinates different students requesting one item. Locks last until commit or rollback, so the next waiting transaction sees committed changes before checking its limit or the listing. Every future reservation writer must preserve this coordination and lock order. Staff lifecycle actions already use conditional listing updates and cannot change a Held listing.
+
+The `EnforceSingleActiveReservationPerListing` migration adds a unique listing index filtered by the actual stored string `"Status" = 'Active'`. It rejects two stored Active rows even if one deadline has passed. Its preflight reports conflicting listing IDs and leaves existing data/history intact; resolve conflicts explicitly before retrying the migration. It does not silently cancel or delete records.
+
+At this checkpoint, an expired stored Active row no longer counts against its student's limit, but still blocks a new reservation for its listing. Checkpoint 3 will reconcile expired holds; creation must not bypass that safeguard. Duplicate submissions return AlreadyReserved without extending the original deadline. Unavailable items, account/pickup ineligibility, and the limit return clear results without writes. Database uniqueness, serialization, deadlock, and lock-unavailable conflicts return a refresh/retry result; other persistence failures return a safe message without database details. There is no automatic retry after an uncertain commit outcome.
+
+SQLite tests use serializable write transactions, with unchanged-value updates to coordinate writers. They verify service decisions and rollback, but PostgreSQL row-lock behavior is verified separately against a disposable database. No process-local lock is used.
 
 ## Cancellation, Expiration, and Release
 
@@ -64,7 +84,7 @@ These are the rules for later reservation operations, not features completed in 
 * A student may cancel their own active reservation before its deadline. Cancellation changes its status to `Canceled`, removes it from the active count, and releases its hold. Students cannot cancel another student's reservation.
 * At or after the deadline, treat an `Active` reservation as expired, not as an on-time cancellation or pickup. Expiration processing will persist `Expired` and release the hold. A delayed worker must not extend the deadline or make the reservation count as active.
 * Releasing a hold returns its listing from `Held` to `Available` only if that reservation still owns the hold. It must not overwrite a different hold or turn a Collected, Missing, or Archived listing back into Available.
-* Updating the reservation and releasing its hold must be atomic. Keep reservation and inventory history; do not delete records to cancel or expire them. Reservation creation and release will need concurrency protection in a later checkpoint.
+* Updating the reservation and releasing its hold must be atomic. Keep reservation and inventory history; do not delete records to cancel or expire them. Release operations must coordinate with the creation transaction and lock order above when implemented.
 * Staff pickup confirmation remains future work. It will verify the reservation and change it to `Fulfilled` while recording the collection; students must not be able to confirm their own pickup. The detailed staff procedure and any late-arrival exceptions still need agreement.
 
 ## Decisions Still Needed

@@ -30,6 +30,23 @@ public class DatabaseModelTests
     }
 
     [Fact]
+    public void ReservationModel_UsesStoredActiveValueForUniqueListingIndex()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=luthrift_model_test").Options;
+        using var context = new ApplicationDbContext(options);
+        var reservation = context.Model.FindEntityType(typeof(Reservation))!;
+        var index = Assert.Single(reservation.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Reservations_ActiveListing");
+
+        Assert.True(index.IsUnique);
+        Assert.Equal(nameof(Reservation.ListingId), Assert.Single(index.Properties).Name);
+        Assert.Equal("\"Status\" = 'Active'", index.GetFilter());
+        Assert.Equal("Active", reservation.FindProperty(nameof(Reservation.Status))!
+            .GetTypeMapping().Converter!.ConvertToProvider(ReservationStatus.Active));
+    }
+
+    [Fact]
     public void AuditEventModel_PreservesListingHistoryAndStoresActorAsScalar()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

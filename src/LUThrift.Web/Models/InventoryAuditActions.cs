@@ -8,4 +8,5 @@ public static class InventoryAuditActions
     public const string MarkedMissing = "ListingMarkedMissing";
     public const string WalkInCollected = "ListingWalkInCollected";
     public const string Archived = "ListingArchived";
+    public const string Reserved = "ListingReserved";
 }

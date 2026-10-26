@@ -309,6 +309,10 @@ namespace LUThrift.Web.Data.Migrations
 
                     b.HasIndex("UserId", "Status");
 
+                    b.HasIndex(new[] { "ListingId" }, "IX_Reservations_ActiveListing")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Active'");
+
                     b.ToTable("Reservations", (string)null);
                 });
 

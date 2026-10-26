@@ -30,6 +30,8 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(r => r.ListingId);
+        builder.HasIndex(r => r.ListingId, "IX_Reservations_ActiveListing")
+            .IsUnique().HasFilter("\"Status\" = 'Active'");
         builder.HasIndex(r => new { r.UserId, r.Status });
         builder.HasIndex(r => new { r.Status, r.ExpiresAtUtc });
     }
