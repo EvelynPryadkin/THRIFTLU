@@ -1,4 +1,5 @@
 using LUThrift.Web.Authorization;
+using LUThrift.Web.Configuration;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
 using LUThrift.Web.Services;
@@ -64,6 +65,10 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<RoleInitializer>();
 builder.Services.AddScoped<ListingService>();
 builder.Services.AddScoped<CatalogService>();
+builder.Services.Configure<ReservationOptions>(builder.Configuration.GetSection(ReservationOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ReservationPolicy>();
+builder.Services.AddSingleton<PickupHoursEligibility>();
 
 var app = builder.Build();
 
