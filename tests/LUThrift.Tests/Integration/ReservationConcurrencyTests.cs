@@ -5,6 +5,7 @@ using LUThrift.Web.Data;
 using LUThrift.Web.InputModels;
 using LUThrift.Web.Models;
 using LUThrift.Web.Services;
+using LUThrift.Web.ViewModels;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -374,6 +375,58 @@ public class ReservationConcurrencyTests
         Assert.Empty(await database.AuditEvents.ToListAsync());
     }
 
+    [ReservationPostgresFact]
+    public async Task AccountOverview_FiltersOwnerAndBoundsHistoryInPostgresWithoutCleanupWrites()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var owner = await test.AddStudentAsync();
+        var other = await test.AddStudentAsync();
+        var currentIds = new List<int>();
+        for (var index = 0; index < 3; index++)
+        {
+            currentIds.Add(await test.AddReservationAsync(owner,
+                await test.AddListingAsync(ListingStatus.Held), InitialNow.AddMinutes(index + 10)));
+        }
+        var historyIds = new List<int>();
+        for (var index = 0; index < ReservationOverview.RecentHistoryLimit + 3; index++)
+        {
+            historyIds.Add(await test.AddReservationAsync(owner,
+                await test.AddListingAsync(ListingStatus.Archived), InitialNow.AddMinutes(-1), ReservationStatus.Canceled));
+        }
+        var expiredListing = await test.AddListingAsync(ListingStatus.Held);
+        var expiredId = await test.AddReservationAsync(owner, expiredListing, InitialNow);
+        historyIds.Add(expiredId);
+        // Higher IDs with identical timestamps must not consume the owner's history limit.
+        for (var index = 0; index < 3; index++)
+        {
+            await test.AddReservationAsync(other, await test.AddListingAsync(ListingStatus.Collected),
+                InitialNow.AddMinutes(-1), ReservationStatus.Fulfilled);
+        }
+        await using var database = test.Context();
+        var before = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        var clock = new ControlledClock(InitialNow);
+
+        var overview = await test.OverviewAsync(owner, clock);
+
+        Assert.Equal(1, clock.ReadCount);
+        Assert.Equal(3, overview.ActiveCount);
+        Assert.Equal(currentIds.OrderDescending(), overview.Current.Select(row => row.Id));
+        Assert.Equal(historyIds.OrderDescending().Take(ReservationOverview.RecentHistoryLimit),
+            overview.RecentHistory.Select(row => row.Id));
+        Assert.All(overview.Current, row => Assert.True(row.CanCancel));
+        Assert.All(overview.RecentHistory, row => Assert.False(row.CanCancel));
+        Assert.Equal(ReservationStatus.Expired, overview.RecentHistory.Single(row => row.Id == expiredId).Status);
+        var otherOverview = await test.OverviewAsync(other, new ControlledClock(InitialNow));
+        Assert.Empty(otherOverview.Current);
+        Assert.Equal(3, otherOverview.RecentHistory.Count);
+        Assert.DoesNotContain(otherOverview.RecentHistory, row => historyIds.Contains(row.Id));
+        var after = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        Assert.Equal(before.Select(ReservationSnapshot), after.Select(ReservationSnapshot));
+        Assert.Equal(ReservationStatus.Active, after.Single(row => row.Id == expiredId).Status);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, expiredListing));
+        Assert.Empty(await database.AuditEvents.ToListAsync());
+    }
+
     private static object ReservationSnapshot(Reservation reservation)
         => (reservation.Id, reservation.ListingId, reservation.UserId, reservation.Status,
             reservation.CreatedAtUtc, reservation.ExpiresAtUtc, reservation.FulfilledAtUtc, reservation.CancellationReason);
@@ -502,6 +555,14 @@ public class ReservationConcurrencyTests
             return cancelingUserId is null
                 ? await service.ExpireAsync(reservationId, cancellationToken)
                 : await service.CancelAsync(reservationId, StudentPrincipal(cancelingUserId), cancellationToken);
+        }
+
+        public async Task<ReservationOverview> OverviewAsync(string userId, ControlledClock clock)
+        {
+            await using var database = Context("overview");
+            var overview = await Service(database, clock).GetForUserAsync(StudentPrincipal(userId));
+            Assert.Empty(database.ChangeTracker.Entries());
+            return overview;
         }
 
         private static ReservationService Service(ApplicationDbContext database, ControlledClock clock)

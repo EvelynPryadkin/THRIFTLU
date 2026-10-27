@@ -33,7 +33,9 @@ public class ReservationAccountPageTests
         if (role == ApplicationRoles.Student)
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Contains("You have no reservations to show.", await response.Content.ReadAsStringAsync());
+            var page = await response.Content.ReadAsStringAsync();
+            Assert.Contains("You have no current reservations.", page);
+            Assert.Contains("No recent reservations yet.", page);
         }
         else
         {

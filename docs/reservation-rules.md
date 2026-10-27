@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–4 implement policy, pickup-hours eligibility, student creation, owner cancellation, and background expiration. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–5 implement policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
 
 ## Reservation Duration
 
@@ -99,6 +99,14 @@ The deadline determines validity; the worker does not. `Status == Active && Expi
 `ExpireReservationsWorker` runs an immediate pass at host startup and then polls. Each pass creates and asynchronously disposes a service scope, selecting at most `ExpirationBatchSize` expired Active IDs ordered by deadline then ID. Each selected transition has its own atomic transaction. The default is 50 records every 30 seconds after the previous pass; batch size is bounded to 1–200 and interval to 1–300 seconds. Failures are logged without database details and retried in later passes. Shutdown cancels both database work and the delay. Multiple hosts may run the worker safely because transitions share database locks and conditional updates.
 
 The worker does not consult pickup hours, Student membership, or account active state. Expiration continues when creation is disabled. During application downtime no worker runs, but deadlines remain unchanged; startup cleanup and creation-time reconciliation catch up. There is no independent external scheduler or staff repair screen in this checkpoint.
+
+## My Reservations and Ownership
+
+My Reservations shows all current, unexpired Active reservations and the active count out of three. A separate recent-history section shows up to 20 Canceled, Expired, Fulfilled, or overdue stored Active records. History is ordered by creation time descending, then reservation ID descending for stable ties; the history limit never removes current reservations from the display or count. Older history is preserved in the database.
+
+The owner comes only from the signed-in server identity. Both query branches apply that owner filter before projection or limiting, and one combined SQL query uses the same captured UTC instant for the count and sections. Passing another `UserId` or reservation ID to the page does not choose another person's history. Cancellation checks ownership and status again under the existing locks; a valid login or Student role alone does not authorize access to somebody else's reservation.
+
+Titles and reservation dates remain visible for owned historical records even after the listing leaves the public catalog. The page shows campus-local times and an explicit timezone/offset, without linking private history to unavailable public detail routes. No GET updates the reservation status, releases a listing, or creates an audit; the deadline still controls effective status and count until a later POST or worker persists cleanup.
 
 ## Decisions Still Needed
 

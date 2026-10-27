@@ -269,17 +269,19 @@ public sealed class ReservationLifecycleTests
         await using var test = await Fixture.CreateAsync(Deadline.AddTicks(-1));
         var own = await test.SeedAsync();
         await test.SeedAsync(listingId: 2, userId: Fixture.OtherStudent);
-        var before = Assert.Single(await test.Service.GetForUserAsync(test.User));
+        var before = Assert.Single((await test.Service.GetForUserAsync(test.User)).Current);
         Assert.Equal(ReservationStatus.Active, before.Status);
         Assert.True(before.CanCancel);
         test.Clock.Now = Deadline;
-        var at = Assert.Single(await test.Service.GetForUserAsync(test.User));
+        var at = Assert.Single((await test.Service.GetForUserAsync(test.User)).RecentHistory);
         Assert.Equal(ReservationStatus.Expired, at.Status);
         Assert.False(at.CanCancel);
         Assert.Equal(ReservationStatus.Active, (await test.ReservationAsync(own.Id)).Status);
         Assert.Equal(ListingStatus.Held, await test.ListingStatusAsync());
         Assert.Empty(await test.Database.AuditEvents.ToListAsync());
-        Assert.Empty(await test.Service.GetForUserAsync(null));
+        var anonymous = await test.Service.GetForUserAsync(null);
+        Assert.Empty(anonymous.Current);
+        Assert.Empty(anonymous.RecentHistory);
         Assert.Empty(test.Database.ChangeTracker.Entries());
     }
 

@@ -1,0 +1,28 @@
+@model LUThrift.Web.ViewModels.ReservationSummary
+@using System.Globalization
+@inject LUThrift.Web.Services.CampusTimeFormatter CampusTime
+@{
+    var createdAtUtc = DateTime.SpecifyKind(Model.CreatedAtUtc, DateTimeKind.Utc);
+    var expiresAtUtc = DateTime.SpecifyKind(Model.ExpiresAtUtc, DateTimeKind.Utc);
+}
+
+<article class="card h-100" aria-labelledby="reservation-title-@Model.Id">
+    <div class="card-body">
+        <h3 id="reservation-title-@Model.Id" class="h5 text-break">@Model.Title</h3>
+        <dl class="mb-0">
+            <dt>Status</dt>
+            <dd>@Model.Status</dd>
+            <dt>Reserved</dt>
+            <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(createdAtUtc)</time></dd>
+            <dt>Deadline</dt>
+            <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(expiresAtUtc)</time></dd>
+        </dl>
+        @if (Model.CanCancel)
+        {
+            <form method="post" asp-page="/Account/Reservations" asp-page-handler="Cancel" asp-antiforgery="true" class="mt-3">
+                <input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-outline-secondary" aria-label="Cancel reservation for @Model.Title">Cancel reservation</button>
+            </form>
+        }
+    </div>
+</article>

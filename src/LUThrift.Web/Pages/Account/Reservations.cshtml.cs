@@ -10,13 +10,14 @@ namespace LUThrift.Web.Pages.Account;
 [Authorize(Roles = ApplicationRoles.Student)]
 public class ReservationsModel(ReservationService reservations) : PageModel
 {
-    public IReadOnlyList<ReservationSummary> Reservations { get; private set; } = [];
+    public ReservationOverview Overview { get; private set; } = new([], []);
+    public int MaximumActiveReservations => ReservationPolicy.MaximumActiveReservations;
 
     [TempData]
     public string? ReservationMessage { get; set; }
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
-        => Reservations = await reservations.GetForUserAsync(User, cancellationToken);
+        => Overview = await reservations.GetForUserAsync(User, cancellationToken);
 
     public async Task<IActionResult> OnPostCancelAsync([FromForm] int id, CancellationToken cancellationToken)
     {

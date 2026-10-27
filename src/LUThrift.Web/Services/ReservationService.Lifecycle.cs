@@ -52,25 +52,32 @@ public sealed partial class ReservationService
         return new(processed, failed);
     }
 
-    public async Task<IReadOnlyList<ReservationSummary>> GetForUserAsync(
+    public async Task<ReservationOverview> GetForUserAsync(
         ClaimsPrincipal? user, CancellationToken cancellationToken = default)
     {
-        var userId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (user?.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(userId)
-            || !await context.Users.AnyAsync(row => row.Id == userId && row.IsActive, cancellationToken)
-            || !await IsStudentAsync(userId, cancellationToken))
+        if (!await IsEligibleStudentAsync(user, cancellationToken))
         {
-            return [];
+            return new([], []);
         }
+        var userId = user!.FindFirstValue(ClaimTypes.NameIdentifier)!;
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        return await context.Reservations.AsNoTracking().Where(row => row.UserId == userId)
+        var owned = context.Reservations.AsNoTracking().Where(row => row.UserId == userId);
+        var current = owned.Where(row => row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now);
+        var history = owned.Where(row => row.Status != ReservationStatus.Active || row.ExpiresAtUtc <= now)
+            .OrderByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.Id)
+            .Take(ReservationOverview.RecentHistoryLimit);
+
+        // One SQL statement keeps the lists and count in the same database snapshot.
+        // History is bounded in SQL independently of current reservations.
+        var rows = await current.Concat(history)
             .OrderByDescending(row => row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now)
-            .ThenByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.Id).Take(100)
+            .ThenByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.Id)
             .Select(row => new ReservationSummary(row.Id, row.ListingId, row.Listing.Title,
                 row.CreatedAtUtc, row.ExpiresAtUtc,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc <= now ? ReservationStatus.Expired : row.Status,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now))
             .ToListAsync(cancellationToken);
+        return new(rows.Where(row => row.CanCancel).ToArray(), rows.Where(row => !row.CanCancel).ToArray());
     }
 
     private async Task ReconcileListingAsync(int listingId, CancellationToken cancellationToken)
