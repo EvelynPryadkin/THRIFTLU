@@ -64,7 +64,9 @@ public class ReservationAccountPageTests
         Assert.Contains("Cancel reservation", activeCard);
         Assert.Contains("Expired", expiredCard);
         Assert.DoesNotContain("<form", expiredCard, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Deadline (UTC)", main);
+        Assert.Contains("<dt>Deadline</dt>", main);
+        Assert.Contains("2026-10-26 10:20:00 (America/Chicago, UTC-05:00)", WebUtility.HtmlDecode(activeCard));
+        Assert.Contains("2026-10-26 10:00:00 (America/Chicago, UTC-05:00)", WebUtility.HtmlDecode(expiredCard));
         var times = Regex.Matches(main, "<time\\b[^>]*datetime=\"([^\"]+)\"", RegexOptions.IgnoreCase);
         Assert.Equal(4, times.Count);
         Assert.All(times.Cast<Match>(), time => Assert.EndsWith("Z", time.Groups[1].Value));

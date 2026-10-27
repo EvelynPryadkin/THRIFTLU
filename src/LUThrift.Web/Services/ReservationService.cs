@@ -16,6 +16,16 @@ public sealed partial class ReservationService(
     ILogger<ReservationService> logger,
     TimeProvider timeProvider)
 {
+    // A read-only hint for public UI; creation still rechecks eligibility under locks.
+    public async Task<bool> IsEligibleStudentAsync(
+        ClaimsPrincipal? user, CancellationToken cancellationToken = default)
+    {
+        var userId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
+        return user?.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(userId) && userId.Length <= 450
+            && await context.Users.AnyAsync(row => row.Id == userId && row.IsActive, cancellationToken)
+            && await IsStudentAsync(userId, cancellationToken);
+    }
+
     // The PageModel must pass its authenticated User, never a principal constructed
     // from submitted fields. Role claims alone do not establish current eligibility.
     public async Task<ReservationCreationResult> CreateAsync(
@@ -36,8 +46,7 @@ public sealed partial class ReservationService(
         {
             // Reject ineligible callers before allowing reconciliation to write.
             // The account and membership are checked again under creation's locks.
-            if (!await context.Users.AnyAsync(row => row.Id == userId && row.IsActive, cancellationToken)
-                || !await IsStudentAsync(userId, cancellationToken))
+            if (!await IsEligibleStudentAsync(user, cancellationToken))
             {
                 return Failure(ReservationCreationStatus.StudentRequired, "An active Student account is required.");
             }
@@ -111,7 +120,7 @@ public sealed partial class ReservationService(
         var window = pickupHours.Evaluate();
         if (!window.IsEligible)
         {
-            return PickupUnavailable();
+            return PickupUnavailable(window.Status);
         }
         var countedAtUtc = window.StartsAtUtc!.Value.UtcDateTime;
 
@@ -151,7 +160,7 @@ public sealed partial class ReservationService(
         var finalWindow = pickupHours.Evaluate();
         if (!finalWindow.IsEligible)
         {
-            return PickupUnavailable();
+            return PickupUnavailable(finalWindow.Status);
         }
         if (finalWindow.StartsAtUtc!.Value.UtcDateTime < countedAtUtc)
         {
@@ -243,7 +252,12 @@ public sealed partial class ReservationService(
     private static ReservationCreationResult Conflict()
         => Failure(ReservationCreationStatus.Conflict, "The item or your reservations changed. Refresh and try again.");
 
-    private static ReservationCreationResult PickupUnavailable()
+    private static ReservationCreationResult PickupUnavailable(PickupHoursStatus status)
         => Failure(ReservationCreationStatus.PickupUnavailable,
-            "Reservations are unavailable now. A full hour must fit within configured pickup hours.");
+            status switch
+            {
+                PickupHoursStatus.ScheduleUnavailable => "Reservations are unavailable because valid pickup hours have not been configured.",
+                PickupHoursStatus.Closed => "Reservations are unavailable because pickup hours are closed.",
+                _ => "Reservations are unavailable because a full hour must fit before the current pickup period ends."
+            });
 }

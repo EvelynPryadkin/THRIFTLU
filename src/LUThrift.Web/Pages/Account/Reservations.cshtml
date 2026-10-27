@@ -1,12 +1,13 @@
 @page
 @model LUThrift.Web.Pages.Account.ReservationsModel
 @using System.Globalization
+@inject LUThrift.Web.Services.CampusTimeFormatter CampusTime
 @{
     ViewData["Title"] = "My reservations";
 }
 
 <h1>@ViewData["Title"]</h1>
-<p>Reservation deadlines are shown in UTC. You can cancel an active reservation before its deadline.</p>
+<p>Reservation times include the timezone and UTC offset. You can cancel an active reservation before its deadline.</p>
 
 @if (!string.IsNullOrWhiteSpace(Model.ReservationMessage))
 {
@@ -31,10 +32,10 @@ else
                         <dl class="mb-0">
                             <dt>Status</dt>
                             <dd>@reservation.Status</dd>
-                            <dt>Reserved (UTC)</dt>
-                            <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@createdAtUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</time></dd>
-                            <dt>Deadline (UTC)</dt>
-                            <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@expiresAtUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</time></dd>
+                            <dt>Reserved</dt>
+                            <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(createdAtUtc)</time></dd>
+                            <dt>Deadline</dt>
+                            <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(expiresAtUtc)</time></dd>
                         </dl>
                         @if (reservation.CanCancel)
                         {

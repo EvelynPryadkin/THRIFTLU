@@ -27,5 +27,26 @@
         </dl>
         <h2 class="h5">Description</h2>
         <p class="text-break">@listing.Description</p>
+
+        <section class="mt-4" aria-labelledby="reservation-heading">
+            <h2 class="h5" id="reservation-heading">Reserve this item</h2>
+            <p>@Model.ReservationAvailabilityMessage</p>
+            @if (!Model.IsSignedIn)
+            {
+                <a asp-area="Identity" asp-page="/Account/Login" asp-route-returnUrl="@Model.LoginReturnUrl"
+                   class="btn btn-outline-primary">Sign in to reserve</a>
+            }
+            else if (!Model.IsEligibleStudent)
+            {
+                <p>An active Student account is required to reserve items.</p>
+            }
+            else if (Model.CanReserve)
+            {
+                <form method="post" asp-page="/Account/Reserve" asp-antiforgery="true">
+                    <input type="hidden" name="ListingId" value="@listing.Id" />
+                    <button type="submit" class="btn btn-primary">Reserve item</button>
+                </form>
+            }
+        </section>
     </div>
 </div>

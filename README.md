@@ -37,7 +37,7 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes reservation creation in the application service, owner cancellation, and background expiration. A reservation-creation form and staff pickup confirmation remain unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes student reservation creation, owner cancellation, and background expiration. Staff pickup confirmation remains unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
@@ -51,17 +51,21 @@ Pages contain at most 12 items, with the filtered total and current page shown a
 
 Previous/Next links preserve the filters, submitting new filters resets to page 1, and an item's Back to catalog link restores its filters and page. Ordering is stable for unchanged results; staff updates between requests can shift items between pages.
 
-The request flow is browser GET → Razor PageModel → `CatalogService` → EF Core → PostgreSQL. The service applies public visibility and all filters before counting or fetching a page with `Skip` and `Take`. It projects only display fields with no tracking. Browsing does not save listings, reservations, or audit events, and there is no reservation action in this catalog yet.
+The browsing flow is browser GET → Razor PageModel → `CatalogService` → EF Core → PostgreSQL. The service applies public visibility and all filters before counting or fetching a page with `Skip` and `Take`. It projects only display fields with no tracking. Browsing does not save listings, reservations, or audit events. The details page's separate Reserve form submits a protected POST described below.
 
-### Reservations (Week 6 checkpoints 1–3)
+### Reservations (Week 6 checkpoints 1–4)
 
-`ReservationService.CreateAsync` accepts a listing-only input and a separately supplied authenticated principal. It checks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. User IDs, roles, deadlines, and audit values cannot be submitted through the input model. This service is registered in DI, but no reservation-creation endpoint or form is connected yet.
+Signed-out visitors can browse and open details, which offer a sign-in link returning to that public item GET. An active Student sees **Reserve item** for an Available item when pickup eligibility permits a full hour. Closed, unconfigured, and insufficient pickup time each have an explanation. The display is a hint; it does not promise availability or bypass the reservation limit.
+
+The form posts only `ListingId` and its antiforgery token to `/Account/Reserve`. The entire receiving page requires Student authorization under the protected Account folder; no creation handler lives under the anonymous Thrift folder. `ReservationService.CreateAsync` receives the authenticated server principal and rechecks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. Submitted owner IDs, roles, statuses, durations, or timestamps are ignored because they are absent from the input model.
+
+Business outcomes redirect to My reservations with a useful message, including stale availability, duplicate submissions, limits, closed hours, and conflicts. Successful confirmation displays the deadline returned by the committed service operation. It never adds an hour to the browser's clock or to a later GET. A GET to `/Account/Reserve` only redirects to browsing and cannot replay a reservation.
 
 PostgreSQL transactions lock the student account first, then the listing, so both same-student and same-item races are coordinated across application instances. Time is read after lock waits and checked again before saving. A filtered unique index also prevents multiple stored Active reservations for one listing. Before creation, an expired hold is reconciled in a separate transaction using its old owner's locks, then creation rechecks everything. See [reservation rules](docs/reservation-rules.md) for the transaction, conflict, and exact-deadline behavior.
 
 No official pickup hours have been invented. `Reservations:WeeklyPickupIntervals` is empty by default, so creation returns unavailable while public browsing works. Configure confirmed hours, breaks, and closed dates using the documented reservation settings and restart the app. The default campus timezone is America/Chicago; persisted times are UTC.
 
-Students have a **My reservations** link to `/Account/Reservations`. The page shows their active reservations first, followed by recent history, up to 100 records, with UTC deadlines. Cancellation is an antiforgery-protected POST with ownership checked in the service. It works outside pickup hours; unknown and other-owner IDs return the same message. At the deadline, the server records expiration instead of cancellation. Repeated processing is a no-op, and each successful transition, eligible Held → Available release, and audit commit together. Missing/Collected/Archived inventory and newer holds remain protected.
+Students have a **My reservations** link to `/Account/Reservations`. The page shows their active reservations first, followed by recent history, up to 100 records. Saved UTC timestamps are displayed in the configured campus timezone with its name and the applicable UTC offset, including daylight-saving changes. If timezone configuration later becomes invalid, existing records fall back to clearly labeled UTC. Cancellation is an antiforgery-protected POST with ownership checked in the service. It works outside pickup hours; unknown and other-owner IDs return the same message. At the deadline, the server records expiration instead of cancellation. Repeated processing is a no-op, and each successful transition, eligible Held → Available release, and audit commit together. Missing/Collected/Archived inventory and newer holds remain protected.
 
 The hosted expiration worker runs independently of pickup availability, using a fresh scoped service per bounded pass. `Reservations:ExpirationPollSeconds` defaults to 30 (bounded 1–300); `ExpirationBatchSize` defaults to 50 (bounded 1–200). Failed passes are logged safely and retried, and shutdown cancels pending work. The host must be running for cleanup; creation also reconciles expired holds when needed. Apply the existing reservation-index migration before launching this version. No new migration is required for checkpoint 3.
 
@@ -124,7 +128,7 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 | Page or folder | Access |
 | --- | --- |
 | `/` and `/Thrift` | Public |
-| `/Account` | Signed-in users; `/Account/Reservations` additionally requires Student |
+| `/Account` | Signed-in users; `/Account/Reserve` and `/Account/Reservations` additionally require Student |
 | `/Staff` | Staff or Administrator |
 | `/Admin` | Administrator |
 
@@ -205,6 +209,8 @@ Checkpoint 2 verification on **October 25, 2026**: restore passed; the solution 
 
 Checkpoint 3 verification on **October 26, 2026**: restore passed, build finished with **0 warnings and 0 errors**, and the complete suite passed **456 tests, 0 failed, 0 skipped** with both dedicated PostgreSQL connections enabled. The 18 PostgreSQL checks included actual lock contention, cancellation crossing its deadline while waiting, concurrent expiration/cancellation, expired-hold reconciliation, rollback, and read-only catalog projection. SQLite and HTTP checks covered exact deadlines, owner-only cancellation, antiforgery, repeated processing, newer holds, bounded worker passes, failure retry, and shutdown. The safe EF check reported no model changes, and `git diff --check` passed. No development-database data was changed; the temporary test schemas and container were cleaned up. The new account page was verified through HTTP tests; a manual browser walkthrough was not performed.
 
+Checkpoint 4 verification on **October 27, 2026**: restore passed, build finished with **0 warnings and 0 errors**, and the complete suite passed **491 tests, 0 failed, 0 skipped**, including the existing 18 checks against disposable PostgreSQL databases. The new 26 HTTP cases cover protected creation, antiforgery, forged fields, stale availability, pickup-hour changes, limits, duplicate submissions, conflict feedback, and GET requests without writes. Nine formatter cases cover saved UTC values, winter/summer offsets, repeated daylight-saving times, and invalid-timezone fallback. The safe EF check reported no model changes, and `git diff --check` passed. No new migration or development-database changes were needed. Manual browser checks for this checkpoint remain pending; use the checklist below.
+
 ### Checking the EF model
 
 To compare the EF model with the migration snapshot without connecting to the development database, restore the local tool and use a placeholder connection in the Testing environment:
@@ -216,6 +222,18 @@ ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_mo
 ```
 
 The custom account workflow includes registration, login, logout, access denial, and viewing/canceling owned reservations. Email delivery, campus sign-in, account deactivation, and profile editing remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
+
+### Manual student Reserve checklist
+
+These steps are a checklist, not a claim that a browser walkthrough has been performed for checkpoint 4. Use the documented Development setup and disposable listings. Configure confirmed pickup hours, or explicitly synthetic local test hours, through local configuration; the shipped empty schedule intentionally disables creation.
+
+1. Signed out, open `/Thrift` and an Available item's details. Confirm browsing stays public and **Sign in to reserve** returns to that item after login without reserving it.
+2. As an active Student during eligible pickup hours, confirm the form offers **Reserve item**. Submit it and check the redirect to My reservations, confirmation, saved deadline, campus timezone, and UTC offset. Refresh and confirm no second reservation appears.
+3. Open the item again and confirm it is Reserved. Resubmit the original form from another tab and confirm a useful duplicate/unavailable message without extending the deadline.
+4. With three active reservations, try another Available item and confirm the limit message. Cancel one through My reservations and confirm another reservation becomes possible.
+5. Load details in one tab, then have another Student reserve that item, or have Staff archive it, before submitting the original form. Confirm the stale form cannot reserve it.
+6. Check closed pickup hours, less than one hour remaining, and an empty schedule. Confirm explanations and no Reserve button. A form loaded earlier must still be rejected by the POST when its eligibility changes.
+7. Confirm a Staff-only account cannot POST to `/Account/Reserve`, and signed-out access redirects to Login. Check keyboard access to the sign-in/Reserve controls and long-text layout at mobile width. The automated HTTP suite separately verifies missing antiforgery tokens and forged fields.
 
 ### Manual Week 4 check
 

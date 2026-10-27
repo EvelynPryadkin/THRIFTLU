@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–3 implement policy, pickup-hours eligibility, atomic creation in `ReservationService`, owner cancellation, and background expiration. Students can view and cancel existing reservations at `/Account/Reservations`. A reservation-creation form and staff pickup confirmation remain future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–4 implement policy, pickup-hours eligibility, student creation, owner cancellation, and background expiration. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
 
 ## Reservation Duration
 
@@ -61,7 +61,9 @@ If a configured endpoint falls in a daylight-saving gap or repeated hour, that d
 
 ## Creation and Database Coordination
 
-`CreateReservationInput` contains only `ListingId`. A future PageModel must pass its authenticated `User` separately to `ReservationService.CreateAsync`; it must not construct that identity from form fields. The service reads the user ID from that principal and verifies an existing, active account with current Student membership in the database. Role claims alone are insufficient. Creation times, the deadline, status, and audit fields come from the server.
+`CreateReservationInput` contains only `ListingId`. The protected Reserve PageModel binds it from form data and passes its authenticated `User` separately to `ReservationService.CreateAsync`; it never constructs identity from form fields. The service reads the user ID from that principal and verifies an existing, active account with current Student membership in the database. Role claims alone are insufficient. Creation times, the deadline, status, and audit fields come from the server.
+
+The public details GET shows a sign-in link or a Reserve form when the account, item, and pickup-hours hints permit it. Closed or unconfigured pickup hours are explained. The form posts to the Student-protected `/Account/Reserve` page with normal Razor Pages antiforgery protection. The anonymous Thrift folder has no reservation mutation handler. POST rechecks every rule, so hidden buttons, stale forms, and forged extra fields cannot grant a reservation. Success redirects to My reservations and displays the committed deadline in campus time with a timezone and UTC-offset label. Existing saved timestamps fall back to labeled UTC if the timezone configuration later becomes invalid. All GET requests remain read-only for inventory, reservations, and audits.
 
 PostgreSQL creation uses one `ReadCommitted` transaction and a consistent lock order:
 
