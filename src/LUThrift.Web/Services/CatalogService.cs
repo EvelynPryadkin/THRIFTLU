@@ -7,8 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LUThrift.Web.Services;
 
-public class CatalogService(ApplicationDbContext context)
+public class CatalogService(ApplicationDbContext context, TimeProvider? timeProvider = null)
 {
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+
     public Task<IReadOnlyList<CatalogListingSummary>> GetListingsAsync(
         CancellationToken cancellationToken = default)
         => GetListingsAsync(new CatalogFilterInput(), cancellationToken);
@@ -26,9 +28,8 @@ public class CatalogService(ApplicationDbContext context)
             return new CatalogListingPage([], 0, 1);
         }
 
-        // Every filter starts within the public catalog, including the "All" option.
-        var query = context.Listings.AsNoTracking()
-            .Where(listing => listing.Status == ListingStatus.Available || listing.Status == ListingStatus.Held);
+        // The same captured cutoff is used by filtering, counting, and projection.
+        var query = PublicListingsAt(clock.GetUtcNow().UtcDateTime);
 
         if (filter.Availability != CatalogAvailability.All)
         {
@@ -77,7 +78,7 @@ public class CatalogService(ApplicationDbContext context)
             .Select(listing => new CatalogListingSummary(
                 listing.Id,
                 listing.Title,
-                listing.Category.Name,
+                listing.CategoryName,
                 listing.Condition,
                 listing.Size,
                 listing.Status))
@@ -106,17 +107,57 @@ public class CatalogService(ApplicationDbContext context)
 
     public async Task<CatalogListingDetails?> GetDetailsAsync(
         int listingId, CancellationToken cancellationToken = default)
-        => await context.Listings.AsNoTracking()
-            // Apply visibility even for a direct ID lookup; a known ID is not permission to see a listing.
-            .Where(listing => listing.Id == listingId
-                && (listing.Status == ListingStatus.Available || listing.Status == ListingStatus.Held))
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await PublicListingsAt(clock.GetUtcNow().UtcDateTime)
+            .Where(listing => listing.Id == listingId)
             .Select(listing => new CatalogListingDetails(
                 listing.Id,
                 listing.Title,
                 listing.Description,
-                listing.Category.Name,
+                listing.CategoryName,
                 listing.Condition,
                 listing.Size,
                 listing.Status))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private IQueryable<PublicListing> PublicListingsAt(DateTime nowUtc)
+        => context.Listings.AsNoTracking()
+            // Stored private statuses stay private, including direct detail lookups.
+            .Where(listing => listing.Status == ListingStatus.Available || listing.Status == ListingStatus.Held)
+            .Select(listing => new PublicListing
+            {
+                Id = listing.Id,
+                Title = listing.Title,
+                Description = listing.Description,
+                CategoryId = listing.CategoryId,
+                CategoryName = listing.Category.Name,
+                Condition = listing.Condition,
+                Size = listing.Size,
+                CreatedAtUtc = listing.CreatedAtUtc,
+                // Display known expiration without writing during a public GET. An orphan hold or
+                // newer reservation history must not be mistaken for this expired reservation's hold.
+                Status = listing.Status == ListingStatus.Held
+                    && listing.Reservations.Any(reservation => reservation.Status == ReservationStatus.Active
+                        && reservation.ExpiresAtUtc <= nowUtc
+                        && !listing.Reservations.Any(other => other.Id != reservation.Id
+                            && other.Status == ReservationStatus.Active)
+                        && !listing.Reservations.Any(newer => newer.CreatedAtUtc > reservation.CreatedAtUtc
+                            || newer.CreatedAtUtc == reservation.CreatedAtUtc && newer.Id > reservation.Id))
+                    ? ListingStatus.Available : listing.Status
+            });
+
+    private sealed class PublicListing
+    {
+        public int Id { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public string Description { get; init; } = string.Empty;
+        public int CategoryId { get; init; }
+        public string CategoryName { get; init; } = string.Empty;
+        public string Condition { get; init; } = string.Empty;
+        public string? Size { get; init; }
+        public DateTime CreatedAtUtc { get; init; }
+        public ListingStatus Status { get; init; }
+    }
 }

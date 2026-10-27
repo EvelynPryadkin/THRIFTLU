@@ -171,7 +171,7 @@ public class ReservationServiceTests
     }
 
     [Fact]
-    public async Task Create_DoesNotReconcileAnExpiredStoredActiveReservationYet()
+    public async Task Create_ReconcilesAnExpiredStoredActiveReservationBeforeReservingAgain()
     {
         await using var test = await TestContext.CreateAsync();
         await test.SeedReservationAsync(1, ReservationStatus.Active, Now);
@@ -179,10 +179,13 @@ public class ReservationServiceTests
         await test.Database.Listings.Where(row => row.Id == 1)
             .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.Status, ListingStatus.Available));
         var result = await test.Service.CreateAsync(new() { ListingId = 1 }, test.User);
-        Assert.Equal(ReservationCreationStatus.Unavailable, result.Status);
-        Assert.Single(await test.Database.Reservations.ToListAsync());
-        Assert.Empty(await test.Database.AuditEvents.ToListAsync());
-        Assert.Equal(ListingStatus.Available, await test.ListingStatusAsync());
+        Assert.Equal(ReservationCreationStatus.Success, result.Status);
+        var reservations = await test.Database.Reservations.OrderBy(row => row.Id).ToListAsync();
+        Assert.Equal(2, reservations.Count);
+        Assert.Equal(ReservationStatus.Expired, reservations[0].Status);
+        Assert.Equal(ReservationStatus.Active, reservations[1].Status);
+        Assert.Equal(2, await test.Database.AuditEvents.CountAsync());
+        Assert.Equal(ListingStatus.Held, await test.ListingStatusAsync());
     }
 
     [Theory]
@@ -293,9 +296,10 @@ public class ReservationServiceTests
                 WeeklyPickupIntervals = unconfigured ? [] :
                     [new() { Day = "Monday", OpensAt = "09:00", ClosesAt = "17:00" }]
             };
+            clock ??= new SequenceClock(Now);
             var service = new ReservationService(database,
-                new PickupHoursEligibility(Options.Create(options), clock ?? new SequenceClock(Now)),
-                NullLogger<ReservationService>.Instance);
+                new PickupHoursEligibility(Options.Create(options), clock),
+                NullLogger<ReservationService>.Instance, clock);
             return new(connection, database, service);
         }
 

@@ -9,4 +9,6 @@ public static class InventoryAuditActions
     public const string WalkInCollected = "ListingWalkInCollected";
     public const string Archived = "ListingArchived";
     public const string Reserved = "ListingReserved";
+    public const string ReservationCanceled = "ReservationCanceled";
+    public const string ReservationExpired = "ReservationExpired";
 }

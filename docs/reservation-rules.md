@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–2 implement policy, pickup-hours eligibility, and atomic creation in `ReservationService`. There is no reservation form yet. Cancellation, expiration processing, and pickup confirmation remain future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–3 implement policy, pickup-hours eligibility, atomic creation in `ReservationService`, owner cancellation, and background expiration. Students can view and cancel existing reservations at `/Account/Reservations`. A reservation-creation form and staff pickup confirmation remain future work.
 
 ## Reservation Duration
 
@@ -36,7 +36,9 @@ The `Reservations` configuration section ships without pickup hours because none
   "Reservations": {
     "CampusTimeZone": "America/Chicago",
     "WeeklyPickupIntervals": [],
-    "ClosedDates": []
+    "ClosedDates": [],
+    "ExpirationPollSeconds": 30,
+    "ExpirationBatchSize": 50
   }
 }
 ```
@@ -73,19 +75,28 @@ The user lock serializes competing requests for different items by the same stud
 
 The `EnforceSingleActiveReservationPerListing` migration adds a unique listing index filtered by the actual stored string `"Status" = 'Active'`. It rejects two stored Active rows even if one deadline has passed. Its preflight reports conflicting listing IDs and leaves existing data/history intact; resolve conflicts explicitly before retrying the migration. It does not silently cancel or delete records.
 
-At this checkpoint, an expired stored Active row no longer counts against its student's limit, but still blocks a new reservation for its listing. Checkpoint 3 will reconcile expired holds; creation must not bypass that safeguard. Duplicate submissions return AlreadyReserved without extending the original deadline. Unavailable items, account/pickup ineligibility, and the limit return clear results without writes. Database uniqueness, serialization, deadlock, and lock-unavailable conflicts return a refresh/retry result; other persistence failures return a safe message without database details. There is no automatic retry after an uncertain commit outcome.
+An expired stored Active row immediately stops counting against its student's limit. Before creation, the service checks the requesting account's eligibility, then reconciles an expired hold for the requested listing in a separate transaction: lock the old owner, lock the listing, reread the reservation and current time, then expire/release/audit together. Only after that transaction ends does creation take the new student's locks. This avoids acquiring an old owner's lock while already holding the new student and listing locks. If the hold crosses its deadline while creation waits, one bounded reconciliation/retry is allowed. A competing student may still win the item; creation rechecks availability rather than assuming cleanup reserved it.
+
+Cleanup can commit even if the subsequent creation is declined, since an expired reservation must stay expired regardless of new pickup eligibility. Duplicate submissions return AlreadyReserved without extending the original deadline. Database uniqueness, serialization, deadlock, and lock-unavailable conflicts return a refresh/retry result; other persistence failures return a safe message without database details. There is no automatic retry after an uncertain commit outcome.
 
 SQLite tests use serializable write transactions, with unchanged-value updates to coordinate writers. They verify service decisions and rollback, but PostgreSQL row-lock behavior is verified separately against a disposable database. No process-local lock is used.
 
 ## Cancellation, Expiration, and Release
 
-These are the rules for later reservation operations, not features completed in this checkpoint:
-
-* A student may cancel their own active reservation before its deadline. Cancellation changes its status to `Canceled`, removes it from the active count, and releases its hold. Students cannot cancel another student's reservation.
-* At or after the deadline, treat an `Active` reservation as expired, not as an on-time cancellation or pickup. Expiration processing will persist `Expired` and release the hold. A delayed worker must not extend the deadline or make the reservation count as active.
-* Releasing a hold returns its listing from `Held` to `Available` only if that reservation still owns the hold. It must not overwrite a different hold or turn a Collected, Missing, or Archived listing back into Available.
-* Updating the reservation and releasing its hold must be atomic. Keep reservation and inventory history; do not delete records to cancel or expire them. Release operations must coordinate with the creation transaction and lock order above when implemented.
+* An existing active Student account may cancel its own active reservation before the deadline, even outside pickup hours or when new reservations are disabled. The submitted form supplies only the reservation ID; ownership comes from the authenticated server identity and database. Unknown and other-owner IDs produce the same safe result.
+* Cancellation changes the stored status to `Canceled`, removes it from the active count, and releases its hold. At or after the deadline, cancellation instead records `Expired`. Both decisions use fresh server time after waiting for locks. Students cannot cancel another student's reservation.
+* Releasing a hold changes `Held` to `Available` only when there is no other stored Active reservation and no newer reservation history for that listing, ordered by creation time and then ID. Orphan holds and ambiguous newer history remain protected. No operation turns Missing, Collected, Archived, or any other non-Held state into Available.
+* Cancellation and expiration each lock owner → listing, reread the reservation, conditionally transition it, release only its eligible hold, and save one audit in a transaction. Failed writes roll everything back. Repeated or competing processing sees the completed status and performs no further transition, release, or audit. All reservation history is retained.
+* Cancellation audits use the student's ID. Expiration audits use the historical scalar actor `system:reservation-expiration`; no synthetic login account is created. Safe details identify the reservation and whether its hold was released or inventory stayed unchanged.
 * Staff pickup confirmation remains future work. It will verify the reservation and change it to `Fulfilled` while recording the collection; students must not be able to confirm their own pickup. The detailed staff procedure and any late-arrival exceptions still need agreement.
+
+## Immediate Deadlines and Background Cleanup
+
+The deadline determines validity; the worker does not. `Status == Active && ExpiresAtUtc > now` remains the active-count rule even if the app was stopped or cleanup is delayed. Account GETs project overdue Active rows as Expired and hide their cancellation controls. Catalog GETs project a known expired hold as Available only when the same release-ownership checks above succeed. That effective status participates in SQL filters, counts, paging, and details. GETs never save these projections, and reservation ownership is never exposed publicly. A page already open in the browser is a snapshot until refreshed; server-side actions always recheck time.
+
+`ExpireReservationsWorker` runs an immediate pass at host startup and then polls. Each pass creates and asynchronously disposes a service scope, selecting at most `ExpirationBatchSize` expired Active IDs ordered by deadline then ID. Each selected transition has its own atomic transaction. The default is 50 records every 30 seconds after the previous pass; batch size is bounded to 1–200 and interval to 1–300 seconds. Failures are logged without database details and retried in later passes. Shutdown cancels both database work and the delay. Multiple hosts may run the worker safely because transitions share database locks and conditional updates.
+
+The worker does not consult pickup hours, Student membership, or account active state. Expiration continues when creation is disabled. During application downtime no worker runs, but deadlines remain unchanged; startup cleanup and creation-time reconciliation catch up. There is no independent external scheduler or staff repair screen in this checkpoint.
 
 ## Decisions Still Needed
 
@@ -94,4 +105,4 @@ These are the rules for later reservation operations, not features completed in 
 * Confirm `America/Chicago` as the campus timezone and the procedure for any hours near a daylight-saving change.
 * Decide whether overnight openings or one-off replacement hours will ever be needed.
 * Agree on pickup identity checks, staff confirmation steps, and late-arrival handling.
-* Decide when expiration cleanup will run and how staff will handle an item that cannot be found. The exact-deadline policy above must hold regardless of cleanup timing.
+* Confirm the operational polling interval, monitoring of failed cleanup passes, and how staff will handle orphan holds or items that cannot be found. The exact-deadline policy holds regardless of cleanup timing.

@@ -1,4 +1,5 @@
 @using LUThrift.Web.Models
+@using LUThrift.Web.Authorization
 @using Microsoft.AspNetCore.Identity
 @inject SignInManager<ApplicationUser> SignInManager
 @inject UserManager<ApplicationUser> UserManager
@@ -10,6 +11,12 @@
 <ul class="navbar-nav">
     @if (currentUser is not null)
     {
+        @if (User.IsInRole(ApplicationRoles.Student))
+        {
+            <li class="nav-item">
+                <a class="nav-link text-dark" asp-area="" asp-page="/Account/Reservations">My reservations</a>
+            </li>
+        }
         <li class="nav-item">
             <span class="navbar-text text-dark text-break">@currentUser.DisplayName</span>
         </li>

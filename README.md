@@ -37,7 +37,7 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 now includes reservation creation in the application service; reservation pages, pickup confirmation, cancellation, and expiration processing remain unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes reservation creation in the application service, owner cancellation, and background expiration. A reservation-creation form and staff pickup confirmation remain unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
@@ -53,13 +53,19 @@ Previous/Next links preserve the filters, submitting new filters resets to page 
 
 The request flow is browser GET → Razor PageModel → `CatalogService` → EF Core → PostgreSQL. The service applies public visibility and all filters before counting or fetching a page with `Skip` and `Take`. It projects only display fields with no tracking. Browsing does not save listings, reservations, or audit events, and there is no reservation action in this catalog yet.
 
-### Reservation creation foundation (Week 6 checkpoints 1–2)
+### Reservations (Week 6 checkpoints 1–3)
 
-`ReservationService.CreateAsync` accepts a listing-only input and a separately supplied authenticated principal. It checks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. IDs, roles, deadlines, and audit values cannot be submitted through the input model. This service is registered in DI, but no reservation endpoint or form is connected yet.
+`ReservationService.CreateAsync` accepts a listing-only input and a separately supplied authenticated principal. It checks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. User IDs, roles, deadlines, and audit values cannot be submitted through the input model. This service is registered in DI, but no reservation-creation endpoint or form is connected yet.
 
-PostgreSQL transactions lock the student account first, then the listing, so both same-student and same-item races are coordinated across application instances. Time is read after lock waits and checked again before saving. A filtered unique index also prevents multiple stored Active reservations for one listing. See [reservation rules](docs/reservation-rules.md) for the transaction, conflict, and exact-deadline behavior. Expired stored Active rows remain protected until checkpoint 3 implements reconciliation.
+PostgreSQL transactions lock the student account first, then the listing, so both same-student and same-item races are coordinated across application instances. Time is read after lock waits and checked again before saving. A filtered unique index also prevents multiple stored Active reservations for one listing. Before creation, an expired hold is reconciled in a separate transaction using its old owner's locks, then creation rechecks everything. See [reservation rules](docs/reservation-rules.md) for the transaction, conflict, and exact-deadline behavior.
 
 No official pickup hours have been invented. `Reservations:WeeklyPickupIntervals` is empty by default, so creation returns unavailable while public browsing works. Configure confirmed hours, breaks, and closed dates using the documented reservation settings and restart the app. The default campus timezone is America/Chicago; persisted times are UTC.
+
+Students have a **My reservations** link to `/Account/Reservations`. The page shows their active reservations first, followed by recent history, up to 100 records, with UTC deadlines. Cancellation is an antiforgery-protected POST with ownership checked in the service. It works outside pickup hours; unknown and other-owner IDs return the same message. At the deadline, the server records expiration instead of cancellation. Repeated processing is a no-op, and each successful transition, eligible Held → Available release, and audit commit together. Missing/Collected/Archived inventory and newer holds remain protected.
+
+The hosted expiration worker runs independently of pickup availability, using a fresh scoped service per bounded pass. `Reservations:ExpirationPollSeconds` defaults to 30 (bounded 1–300); `ExpirationBatchSize` defaults to 50 (bounded 1–200). Failed passes are logged safely and retried, and shutdown cancels pending work. The host must be running for cleanup; creation also reconciles expired holds when needed. Apply the existing reservation-index migration before launching this version. No new migration is required for checkpoint 3.
+
+A reservation expires immediately at `ExpiresAtUtc <= server time`, even before cleanup runs. It stops consuming the student's limit. Read-only account queries show it as Expired; catalog queries show its known, safely releasable hold as Available, including filters/counts/details. Orphan holds or newer reservation history stay protected. These GET requests never save inventory, reservation, or audit changes. An already-open page updates on refresh; actions always recheck on the server.
 
 ## Running locally
 
@@ -118,13 +124,13 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 | Page or folder | Access |
 | --- | --- |
 | `/` and `/Thrift` | Public |
-| `/Account` | Signed-in users |
+| `/Account` | Signed-in users; `/Account/Reservations` additionally requires Student |
 | `/Staff` | Staff or Administrator |
 | `/Admin` | Administrator |
 
 These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
 
-The home page links to the working public catalog and item details. Staff has a landing page and working inventory dashboard, Create, and Edit pages. Admin has a minimal landing page. Application-specific account/history, pickup, and administration placeholders remain future work. The folder rules will apply as those pages are implemented. Reservation ownership checks remain Week 6 work.
+The home page links to the working public catalog and item details. Staff has a landing page and working inventory dashboard, Create, and Edit pages. Admin has a minimal landing page. Students can view and cancel their own reservations. Profile editing, pickup, and administration placeholders remain future work. The folder rules will apply as those pages are implemented.
 
 ## Automated checks
 
@@ -193,9 +199,11 @@ LUTHRIFT_RESERVATION_TEST_CONNECTION='Host=127.0.0.1;Port=PORT_FROM_DOCKER;Datab
 docker stop luthrift-reservation-check
 ```
 
-Trust authentication here is confined to this temporary loopback database. The PostgreSQL tests observe actual lock waits for both concurrency cases and pickup cutoff changes; they also verify duplicate handling, the filtered index, audit-failure rollback, and migration refusal without data loss. SQLite tests cover input/account rejection, limits and exact deadlines, server-owned fields, final time checks, and rollback on either insert failure. Neither set adds reservation pages or expiration processing.
+Trust authentication here is confined to this temporary loopback database. PostgreSQL tests observe actual lock waits for creation, cancellation versus expiration, and expired-hold reconciliation. They also verify newer-hold protection, audit-failure rollback, the filtered index, and migration refusal without data loss. SQLite and HTTP tests cover exact deadlines, owner-only POSTs, antiforgery, safe input, read-only displays, bounded worker passes, retry, shutdown, and rollback. The optional catalog PostgreSQL suite also verifies the effective expired-hold projection against the real provider.
 
 Checkpoint 2 verification on **October 25, 2026**: restore passed; the solution build had **0 warnings and 0 errors**; the complete suite with the reservation PostgreSQL connection passed **376 tests, 0 failed, 2 skipped, 378 total**. All eight reservation PostgreSQL cases ran on a dedicated disposable PostgreSQL **18.6** instance. The two optional catalog PostgreSQL tests were skipped because their separate connection was not supplied. All test schemas were removed afterward. The safe EF check reported no pending model changes and `git diff --check` passed. A read-only development-database check found zero conflicting listing groups; the new migration was not applied to that database during verification.
+
+Checkpoint 3 verification on **October 26, 2026**: restore passed, build finished with **0 warnings and 0 errors**, and the complete suite passed **456 tests, 0 failed, 0 skipped** with both dedicated PostgreSQL connections enabled. The 18 PostgreSQL checks included actual lock contention, cancellation crossing its deadline while waiting, concurrent expiration/cancellation, expired-hold reconciliation, rollback, and read-only catalog projection. SQLite and HTTP checks covered exact deadlines, owner-only cancellation, antiforgery, repeated processing, newer holds, bounded worker passes, failure retry, and shutdown. The safe EF check reported no model changes, and `git diff --check` passed. No development-database data was changed; the temporary test schemas and container were cleaned up. The new account page was verified through HTTP tests; a manual browser walkthrough was not performed.
 
 ### Checking the EF model
 
@@ -207,7 +215,7 @@ ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_mo
   dotnet ef migrations has-pending-model-changes --project src/LUThrift.Web --no-build -- --environment Testing
 ```
 
-The custom account workflow is limited to registration, login, logout, and access denial. Email delivery, campus sign-in, account deactivation, and application-specific profile/history pages remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
+The custom account workflow includes registration, login, logout, access denial, and viewing/canceling owned reservations. Email delivery, campus sign-in, account deactivation, and profile editing remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
 
 ### Manual Week 4 check
 

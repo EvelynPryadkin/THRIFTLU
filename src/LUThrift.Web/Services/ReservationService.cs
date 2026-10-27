@@ -10,10 +10,11 @@ using Npgsql;
 
 namespace LUThrift.Web.Services;
 
-public sealed class ReservationService(
+public sealed partial class ReservationService(
     ApplicationDbContext context,
     PickupHoursEligibility pickupHours,
-    ILogger<ReservationService> logger)
+    ILogger<ReservationService> logger,
+    TimeProvider timeProvider)
 {
     // The PageModel must pass its authenticated User, never a principal constructed
     // from submitted fields. Role claims alone do not establish current eligibility.
@@ -33,7 +34,26 @@ public sealed class ReservationService(
 
         try
         {
-            return await CreateInTransactionAsync(input.ListingId, userId, cancellationToken);
+            // Reject ineligible callers before allowing reconciliation to write.
+            // The account and membership are checked again under creation's locks.
+            if (!await context.Users.AnyAsync(row => row.Id == userId && row.IsActive, cancellationToken)
+                || !await IsStudentAsync(userId, cancellationToken))
+            {
+                return Failure(ReservationCreationStatus.StudentRequired, "An active Student account is required.");
+            }
+            // Reconciliation owns a separate owner→listing transaction. Never acquire
+            // an old owner's lock while already holding the new student's/listing locks.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                await ReconcileListingAsync(input.ListingId, cancellationToken);
+                var result = await CreateInTransactionAsync(input.ListingId, userId, cancellationToken);
+                if (result.Status != ReservationCreationStatus.Unavailable || attempt == 1)
+                {
+                    return result;
+                }
+                // A hold may have crossed its deadline while creation waited for locks.
+            }
+            return Conflict();
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -105,8 +125,7 @@ public sealed class ReservationService(
         }
         if (status != ListingStatus.Available || existing is not null)
         {
-            // Even an expired stored Active row stays protected until checkpoint 3
-            // reconciles its hold and status; never overwrite that history here.
+            // Reconciliation must commit first; never overwrite a stored Active row.
             return Failure(ReservationCreationStatus.Unavailable, "This item is not available to reserve.");
         }
 

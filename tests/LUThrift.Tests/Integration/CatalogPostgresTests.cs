@@ -214,6 +214,94 @@ public class CatalogPostgresTests
         await transaction.RollbackAsync();
     }
 
+    [CatalogPostgresFact]
+    public async Task ExpiredHoldProjection_TranslatesFilteringCountsAndDetailsWithoutWritingPostgresHistory()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>().UseNpgsql(TestConnection()).Options;
+        await using var database = new ApplicationDbContext(options);
+        await database.Database.EnsureCreatedAsync();
+        await using var transaction = await database.Database.BeginTransactionAsync();
+        var deadline = new DateTimeOffset(2026, 1, 5, 16, 0, 0, TimeSpan.Zero);
+        var userId = "catalog-expiry-" + Guid.NewGuid().ToString("N");
+        database.Users.Add(new ApplicationUser
+        {
+            Id = userId, DisplayName = "Catalog expiration test", CreatedAtUtc = deadline.AddDays(-1).UtcDateTime
+        });
+        database.Categories.Add(new Category { Id = CategoryId, Name = "PostgreSQL expiration test", DisplayOrder = 100 });
+        database.Listings.AddRange(
+            Listing(6101, "Expiry coat", "Known expired hold.", ListingStatus.Held),
+            Listing(6102, "Expiry live coat", "Current hold.", ListingStatus.Held),
+            Listing(6103, "Expiry orphan coat", "Hold without a reservation.", ListingStatus.Held),
+            Listing(6104, "Expiry protected coat", "Hold protected by newer history.", ListingStatus.Held),
+            Listing(6105, "Expiry private coat", "Private inventory.", ListingStatus.Archived));
+        Reservation[] reservations =
+        [
+            new() { Id = 61001, ListingId = 6101, UserId = userId, Status = ReservationStatus.Active,
+                CreatedAtUtc = deadline.AddHours(-1).UtcDateTime, ExpiresAtUtc = deadline.UtcDateTime },
+            new() { Id = 61002, ListingId = 6102, UserId = userId, Status = ReservationStatus.Active,
+                CreatedAtUtc = deadline.AddMinutes(-45).UtcDateTime, ExpiresAtUtc = deadline.AddMinutes(15).UtcDateTime },
+            new() { Id = 61003, ListingId = 6104, UserId = userId, Status = ReservationStatus.Active,
+                CreatedAtUtc = deadline.AddHours(-1).UtcDateTime, ExpiresAtUtc = deadline.UtcDateTime },
+            new() { Id = 61004, ListingId = 6104, UserId = userId, Status = ReservationStatus.Canceled,
+                CreatedAtUtc = deadline.AddMinutes(-30).UtcDateTime, ExpiresAtUtc = deadline.AddMinutes(-15).UtcDateTime },
+            new() { Id = 61005, ListingId = 6105, UserId = userId, Status = ReservationStatus.Active,
+                CreatedAtUtc = deadline.AddHours(-1).UtcDateTime, ExpiresAtUtc = deadline.UtcDateTime }
+        ];
+        database.Reservations.AddRange(reservations);
+        database.AuditEvents.Add(new AuditEvent
+        {
+            Id = 7101, ListingId = 6101, ActorUserId = userId, Action = InventoryAuditActions.Reserved,
+            OccurredAtUtc = deadline.AddHours(-1).UtcDateTime, Details = "Existing reservation audit history."
+        });
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+        var before = await SnapshotAsync(database);
+        var reservationsBefore = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        var clock = new CatalogClock(deadline);
+        var service = new CatalogService(database, clock);
+
+        foreach (var offset in new[] { -1, 0, 1 })
+        {
+            clock.UtcNow = deadline.AddSeconds(offset);
+            var filter = new CatalogFilterInput { CategoryId = CategoryId, Search = " EXPIRY ", Size = " M " };
+            var available = await service.GetPageAsync(filter);
+            Assert.Equal(offset < 0 ? 0 : 1, available.TotalCount);
+            if (offset >= 0)
+            {
+                var item = Assert.Single(available.Items);
+                Assert.Equal(6101, item.Id);
+                Assert.Equal(ListingStatus.Available, item.Status);
+            }
+            filter.Availability = CatalogAvailability.Reserved;
+            Assert.Equal(offset < 0 ? 4 : 3, (await service.GetPageAsync(filter)).TotalCount);
+            filter.Availability = CatalogAvailability.All;
+            Assert.Equal(4, (await service.GetPageAsync(filter)).TotalCount);
+            Assert.Equal(offset < 0 ? ListingStatus.Held : ListingStatus.Available,
+                (await service.GetDetailsAsync(6101))!.Status);
+            Assert.Equal(ListingStatus.Held, (await service.GetDetailsAsync(6103))!.Status);
+            Assert.Equal(ListingStatus.Held, (await service.GetDetailsAsync(6104))!.Status);
+            Assert.Null(await service.GetDetailsAsync(6105));
+        }
+
+        var after = await SnapshotAsync(database);
+        Assert.Equal(before.Listings, after.Listings);
+        Assert.Equal(before.Audits, after.Audits);
+        var reservationsAfter = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        Assert.Equal(reservationsBefore.Select(ReservationSnapshot), reservationsAfter.Select(ReservationSnapshot));
+        Assert.Empty(database.ChangeTracker.Entries());
+        await transaction.RollbackAsync();
+    }
+
+    private static object ReservationSnapshot(Reservation reservation)
+        => (reservation.Id, reservation.ListingId, reservation.UserId, reservation.Status,
+            reservation.CreatedAtUtc, reservation.ExpiresAtUtc, reservation.FulfilledAtUtc, reservation.CancellationReason);
+
+    private sealed class CatalogClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
     private static async Task<(object[] Listings, object[] Audits)> SnapshotAsync(ApplicationDbContext database)
     {
         var listings = await database.Listings.AsNoTracking().OrderBy(listing => listing.Id).ToArrayAsync();

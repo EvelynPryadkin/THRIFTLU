@@ -1,6 +1,7 @@
 using LUThrift.Web.Authorization;
 using LUThrift.Web.Configuration;
 using LUThrift.Web.Data;
+using LUThrift.Web.Jobs;
 using LUThrift.Web.Models;
 using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Identity;
@@ -70,6 +71,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ReservationPolicy>();
 builder.Services.AddSingleton<PickupHoursEligibility>();
 builder.Services.AddScoped<ReservationService>();
+builder.Services.AddHostedService<ExpireReservationsWorker>();
 
 var app = builder.Build();
 

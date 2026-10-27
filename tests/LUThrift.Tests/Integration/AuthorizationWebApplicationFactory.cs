@@ -1,4 +1,5 @@
 using LUThrift.Web.Data;
+using LUThrift.Web.Jobs;
 using LUThrift.Web.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -33,6 +34,9 @@ public sealed class AuthorizationWebApplicationFactory : WebApplicationFactory<A
         builder.UseSetting("ConnectionStrings:DefaultConnection", "Test database is configured through dependency injection");
         builder.ConfigureServices(services =>
         {
+            // HTTP tests control all writes/time; the actual worker has separate tests.
+            var worker = services.Single(descriptor => descriptor.ImplementationType == typeof(ExpireReservationsWorker));
+            services.Remove(worker);
             services.RemoveAll<ApplicationDbContext>();
             services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<ApplicationDbContext>>();
