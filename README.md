@@ -53,7 +53,7 @@ Previous/Next links preserve the filters, submitting new filters resets to page 
 
 The browsing flow is browser GET → Razor PageModel → `CatalogService` → EF Core → PostgreSQL. The service applies public visibility and all filters before counting or fetching a page with `Skip` and `Take`. It projects only display fields with no tracking. Browsing does not save listings, reservations, or audit events. The details page's separate Reserve form submits a protected POST described below.
 
-### Reservations (Week 6 checkpoints 1–5)
+### Reservations (Week 6)
 
 Signed-out visitors can browse and open details, which offer a sign-in link returning to that public item GET. An active Student sees **Reserve item** for an Available item when pickup eligibility permits a full hour. Closed, unconfigured, and insufficient pickup time each have an explanation. The display is a hint; it does not promise availability or bypass the reservation limit.
 
@@ -71,7 +71,7 @@ The service obtains the owner ID from authenticated claims and applies it before
 
 Saved UTC timestamps are displayed in the configured campus timezone with its name and applicable UTC offset, including daylight-saving changes. Invalid timezone configuration falls back to labeled UTC. Cancellation uses an antiforgery-protected POST and works outside pickup hours. Unknown and other-owner IDs return the same message. At the deadline, the server records expiration instead of cancellation. Repeated processing is a no-op; each successful transition, eligible Held → Available release, and audit commit together. Missing/Collected/Archived inventory and newer holds remain protected.
 
-The hosted expiration worker runs independently of pickup availability, using a fresh scoped service per bounded pass. `Reservations:ExpirationPollSeconds` defaults to 30 (bounded 1–300); `ExpirationBatchSize` defaults to 50 (bounded 1–200). Failed passes are logged safely and retried, and shutdown cancels pending work. The host must be running for cleanup; creation also reconciles expired holds when needed. Apply the existing reservation-index migration before launching this version. No new migration is required for checkpoint 3.
+The hosted expiration worker runs independently of pickup availability, using a fresh scoped service per bounded pass. `Reservations:ExpirationPollSeconds` defaults to 30 (bounded 1–300); `ExpirationBatchSize` defaults to 50 (bounded 1–200). Failed passes are logged safely and retried, and shutdown cancels pending work. The host must be running for cleanup; creation also reconciles expired holds when needed. Apply the existing reservation-index migration before launching this version. The final verification checkpoint adds no migration or production-code changes.
 
 A reservation expires immediately at `ExpiresAtUtc <= server time`, even before cleanup runs. It stops consuming the student's limit. Read-only account queries show it as Expired; catalog queries show its known, safely releasable hold as Available, including filters/counts/details. Orphan holds or newer reservation history stay protected. These GET requests never save inventory, reservation, or audit changes. An already-open page updates on refresh; actions always recheck on the server.
 
@@ -199,15 +199,19 @@ docker exec luthrift-reservation-check pg_isready -U luthrift_reservation_test -
 docker port luthrift-reservation-check 5432/tcp
 ```
 
-After `pg_isready` reports accepting connections, substitute the printed port:
+After `pg_isready` reports accepting connections, create the separate catalog test database and substitute the printed port in both connections. Build first using the commands above. This runs both optional suites without skips:
 
 ```sh
+docker exec luthrift-reservation-check createdb -U luthrift_reservation_test luthrift_catalog_test
 LUTHRIFT_RESERVATION_TEST_CONNECTION='Host=127.0.0.1;Port=PORT_FROM_DOCKER;Database=luthrift_reservation_test;Username=luthrift_reservation_test' \
-  dotnet test LUThrift.slnx
+LUTHRIFT_CATALOG_TEST_CONNECTION='Host=127.0.0.1;Port=PORT_FROM_DOCKER;Database=luthrift_catalog_test;Username=luthrift_reservation_test' \
+  dotnet test LUThrift.slnx --no-build --logger 'console;verbosity=minimal'
 docker stop luthrift-reservation-check
 ```
 
-Trust authentication here is confined to this temporary loopback database. PostgreSQL tests observe actual lock waits for creation, cancellation versus expiration, and expired-hold reconciliation. They also verify newer-hold protection, audit-failure rollback, the filtered index, and migration refusal without data loss. SQLite and HTTP tests cover exact deadlines, owner-only POSTs, antiforgery, safe input, read-only displays, bounded worker passes, retry, shutdown, and rollback. The optional catalog PostgreSQL suite also verifies the effective expired-hold projection against the real provider.
+Trust authentication here is confined to this temporary loopback database. PostgreSQL race tests commit their fixtures first, then run operations on separate connections and DbContexts. A shared start signal launches the competing requests; a separate blocker holds a user or listing row until every request is observed waiting on a database lock. Releasing that blocker lets the real service transactions compete. There is no shared outer transaction around those operations.
+
+These tests cover two students requesting one item, one student near the limit requesting different items, simultaneous duplicate submissions, and cancellation/expiration competing with a replacement reservation. They also verify newer-hold protection, audit-failure rollback, the filtered index, and migration refusal without data loss. SQLite and HTTP tests cover exact deadlines, owner-only POSTs, antiforgery, safe input, read-only displays, bounded worker passes, retry, shutdown, and rollback. The optional catalog PostgreSQL suite also verifies the effective expired-hold projection against the real provider.
 
 Checkpoint 2 verification on **October 25, 2026**: restore passed; the solution build had **0 warnings and 0 errors**; the complete suite with the reservation PostgreSQL connection passed **376 tests, 0 failed, 2 skipped, 378 total**. All eight reservation PostgreSQL cases ran on a dedicated disposable PostgreSQL **18.6** instance. The two optional catalog PostgreSQL tests were skipped because their separate connection was not supplied. All test schemas were removed afterward. The safe EF check reported no pending model changes and `git diff --check` passed. A read-only development-database check found zero conflicting listing groups; the new migration was not applied to that database during verification.
 
@@ -216,6 +220,21 @@ Checkpoint 3 verification on **October 26, 2026**: restore passed, build finishe
 Checkpoint 4 verification on **October 27, 2026**: restore passed, build finished with **0 warnings and 0 errors**, and the complete suite passed **491 tests, 0 failed, 0 skipped**, including the existing 18 checks against disposable PostgreSQL databases. The new 26 HTTP cases cover protected creation, antiforgery, forged fields, stale availability, pickup-hour changes, limits, duplicate submissions, conflict feedback, and GET requests without writes. Nine formatter cases cover saved UTC values, winter/summer offsets, repeated daylight-saving times, and invalid-timezone fallback. The safe EF check reported no model changes, and `git diff --check` passed. No new migration or development-database changes were needed. Manual browser checks for this checkpoint remain pending; use the checklist below.
 
 Checkpoint 5 verification on **October 27, 2026**: restore passed, build had **0 warnings and 0 errors**, and the complete suite passed **510 tests, 0 failed, 0 skipped**, with both dedicated PostgreSQL connections enabled. New coverage includes six HTTP tests using two separately signed-in Students, 12 SQLite overview-query cases, and one PostgreSQL owner/history-limit query case. The tests verify count updates, strict deadline boundaries, bounded and stably ordered history, private historical item titles, forged owner/ID requests, missing and cross-user antiforgery tokens, repeated cancellation, and unchanged data during GETs. All 19 PostgreSQL checks passed against disposable databases; development data was untouched. The safe EF check found no model changes, and `git diff --check` passed. No migration was added. This verification used HTTP tests rather than a manual browser walkthrough.
+
+### Week 6 final verification
+
+Checkpoint 6 on **October 27, 2026**: `dotnet restore LUThrift.slnx` passed; `dotnet build LUThrift.slnx` passed with **0 warnings and 0 errors**. The full `dotnet test LUThrift.slnx --no-build --logger 'console;verbosity=minimal'` run, with both dedicated test connections enabled, passed **514 tests, 0 failed, 0 skipped**. This includes **19 reservation and 3 catalog PostgreSQL cases** on a disposable PostgreSQL **18.6** instance. The safe EF check reported no changes since the last migration; `git diff --check` passed. All reservation test schemas were removed, and the disposable container was stopped afterward. No development-database records or configuration were changed.
+
+Four regression tests were added: simultaneous duplicate submissions; cancellation and expiration racing a replacement at the exact deadline; cancellation before the deadline racing a new request; and an HTTP reserve → view → cancel → expire → reserve-again flow. The HTTP test fills three slots through real form submissions, rejects the fourth, reuses a canceled slot, and proves overdue stored Active rows stop consuming the limit before cleanup. It checks retained history, exact saved deadlines, expected audits, and unchanged data during catalog/account GETs. The PostgreSQL migration tests apply `EnforceSingleActiveReservationPerListing`, exercise its `"Status" = 'Active'` unique index, and confirm conflicting history causes migration refusal without deleting data. No production-code fix was needed.
+
+- [x] One-hour duration, opening/closing boundaries, breaks, closures, timezone changes, and exact expiration covered by controlled-time tests.
+- [x] Three-active limit, canceled/expired slot reuse, active-account eligibility, ownership, antiforgery, and forged fields covered.
+- [x] Atomic writes and rollback, safe hold release, repeated processing, worker retry/shutdown, and all four concurrency scenarios verified.
+- [x] Public browsing remains read-only; existing catalog and Staff/Administrator tests still pass.
+- [x] Restore, build, full tests, PostgreSQL migration/index verification, EF model check, and whitespace check passed.
+- [ ] Two-account Week 6 browser walkthrough, mobile layout, keyboard/focus, and real-time expiration remain pending. HTTP tests are not a visual browser check.
+
+The implemented student workflow is automatically verified, but Week 6 is not fully browser-verified. Official pickup hours are still **unconfirmed**, so the shipped empty schedule disables new reservations. Staff pickup confirmation, operational monitoring/repair procedures, and real image upload remain future work.
 
 ### Checking the EF model
 
@@ -229,17 +248,19 @@ ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_mo
 
 The custom account workflow includes registration, login, logout, access denial, and viewing/canceling owned reservations. Email delivery, campus sign-in, account deactivation, and profile editing remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
 
-### Manual student Reserve checklist
+### Week 6 browser walkthrough — pending
 
-These steps are a checklist, not a claim that a browser walkthrough has been performed for checkpoint 4. Use the documented Development setup and disposable listings. Configure confirmed pickup hours, or explicitly synthetic local test hours, through local configuration; the shipped empty schedule intentionally disables creation.
+No Week 6 manual browser run was performed in checkpoint 6. The earlier Week 5 browser record does not verify the new reservation UI. Use the documented Development HTTPS setup against a separate local test database with migrations applied. Configure explicitly synthetic pickup intervals through local configuration for this walkthrough, with enough time for the complete hour; do not present them as official hours or commit them. Keep the one-hour policy and system clock unchanged.
 
-1. Signed out, open `/Thrift` and an Available item's details. Confirm browsing stays public and **Sign in to reserve** returns to that item after login without reserving it.
-2. As an active Student during eligible pickup hours, confirm the form offers **Reserve item**. Submit it and check the redirect to My reservations, confirmation, saved deadline, campus timezone, and UTC offset. Refresh and confirm no second reservation appears.
-3. Open the item again and confirm it is Reserved. Resubmit the original form from another tab and confirm a useful duplicate/unavailable message without extending the deadline.
-4. With three active reservations, try another Available item and confirm the limit message. Cancel one through My reservations and confirm another reservation becomes possible.
-5. Load details in one tab, then have another Student reserve that item, or have Staff archive it, before submitting the original form. Confirm the stale form cannot reserve it.
-6. Check closed pickup hours, less than one hour remaining, and an empty schedule. Confirm explanations and no Reserve button. A form loaded earlier must still be rejected by the POST when its eligibility changes.
-7. Confirm a Staff-only account cannot POST to `/Account/Reserve`, and signed-out access redirects to Login. Check keyboard access to the sign-in/Reserve controls and long-text layout at mobile width. The automated HTTP suite separately verifies missing antiforgery tokens and forged fields.
+1. Register two synthetic accounts, A and B, and use separate browser profiles/private windows so their cookies stay separate. Both should receive Student. For fixture setup, the optional development bootstrap can temporarily add Administrator to A's existing account; restart and sign in again. A retains Student. Create and publish at least five clearly labeled test items through Staff inventory, including one with a long title and missing size. Leave another item Draft and confirm it stays hidden.
+2. Signed out, open `/Thrift` and Available details. **Sign in to reserve** should return to that item without creating a reservation. As A, reserve one item and check the redirect to My reservations, confirmation, title, count **1 of 3**, and saved deadline with campus timezone and UTC offset. Refresh: no duplicate or later deadline should appear.
+3. As B, the same item should show Reserved without A's identity. My reservations should show only B's records. Reserve a different item as B and verify A's page does not show it. With B's own valid Cancel form token, changing the submitted ID to A's reservation must give the same safe response as an unknown ID, leaving both holds unchanged. A missing token must reject the POST.
+4. As A, reserve until the count is **3 of 3**; a fourth must be refused. Cancel one through its form. Check **2 of 3**, retained Canceled history, and the released item's Available status. Retry the old Cancel submission: no second change. Reserve another item successfully. Reposting an old Reserve form must not duplicate the hold or extend its deadline.
+5. Leave a reservation until its actual displayed deadline. Refresh My reservations just before and at/after that time: it must leave Current, show Expired in history, lose its Cancel control, and stop consuming the limit. Check that the item becomes Available and B can reserve it. A's stale Cancel request must not release B's new hold. Worker cleanup normally follows within a polling pass; the exact boundary is already covered by controlled-time tests and does not depend on catching a browser refresh at an exact tick.
+6. Keep an active reservation, then restart with an empty or closed synthetic schedule. New creation must be unavailable while browsing, cancellation, and eventual expiration still work. Also check a window with less than one hour remaining. Restore only the intended local settings afterward. For stale availability, open a form as A and let B reserve the item before A submits; A must receive safe feedback.
+7. Repeat details, My reservations, cancellation messages, and navigation at about **375px, 768px, and desktop width**. Check long titles and timezone labels for overflow, readable status/deadline text, keyboard access to all controls, visible focus, and an understandable Cancel label. Confirm Student B cannot open Staff/Admin pages, and successful Staff lifecycle actions still affect the public catalog for unheld items.
+
+Record the browser/version, widths, results, and any defects before marking this walkthrough complete. Retain canceled/expired history; archive the test inventory after holds finish rather than deleting listings. Staff pickup confirmation is not part of this walkthrough because it is not implemented.
 
 ### Manual Week 4 check
 

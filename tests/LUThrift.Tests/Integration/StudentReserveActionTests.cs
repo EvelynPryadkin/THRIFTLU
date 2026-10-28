@@ -263,6 +263,79 @@ public class StudentReserveActionTests
     }
 
     [Fact]
+    public async Task ReserveViewCancelAndExpire_ReusesSlotsAndKeepsHistoryWithoutGetWrites()
+    {
+        await using var test = await ReserveTest.CreateAsync();
+        foreach (var listingId in new[] { 1, 2, 3, 4 })
+            await test.SetListingStatusAsync(listingId, ListingStatus.Available);
+        var token = Token(ReserveForm(await test.Client.GetStringAsync(DetailsPath)));
+        foreach (var listingId in new[] { 1, 2, 3 })
+        {
+            using var response = await test.PostAsync(listingId, token);
+            AssertPrg(response);
+        }
+        var initial = await test.SnapshotAsync();
+        Assert.Equal(3, initial.Reservations.Length);
+        Assert.All(initial.Reservations, row =>
+            Assert.Equal(TimeSpan.FromHours(1), row.ExpiresAtUtc - row.CreatedAtUtc));
+        Assert.Contains("Active reservations: 3 of 3", await test.Client.GetStringAsync(AccountPath));
+        using (var fourth = await test.PostAsync(4, token)) AssertPrg(fourth);
+        Assert.Contains("three active reservations", Message(await test.Client.GetStringAsync(AccountPath)));
+        Assert.Equal(3, (await test.SnapshotAsync()).Reservations.Length);
+
+        test.Clock.AdvanceTo(InitialNow.AddMinutes(5));
+        var canceledId = initial.Reservations.Single(row => row.ListingId == 1).Id;
+        using (var cancel = await test.Client.PostAsync(AccountPath + "?handler=Cancel",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["id"] = canceledId.ToString(CultureInfo.InvariantCulture),
+                ["__RequestVerificationToken"] = Token(await test.Client.GetStringAsync(AccountPath))
+            }))) AssertPrg(cancel);
+        Assert.Contains("Active reservations: 2 of 3", await test.Client.GetStringAsync(AccountPath));
+        using (var replacement = await test.PostAsync(4, token)) AssertPrg(replacement);
+        Assert.Contains("Active reservations: 3 of 3", await test.Client.GetStringAsync(AccountPath));
+
+        // The worker is disabled by the HTTP fixture. At the exact deadline,
+        // account and catalog GETs must reflect expiration without saving anything.
+        test.Clock.AdvanceTo(InitialNow.AddHours(1));
+        var beforeBrowsing = await test.SnapshotAsync();
+        var account = await test.Client.GetStringAsync(AccountPath);
+        Assert.Contains("Active reservations: 1 of 3", account);
+        Assert.Contains("Canceled", MainContent(account));
+        Assert.Contains("Expired", MainContent(account));
+        Assert.Contains("America/Chicago", MainContent(account));
+        var expiredDetails = await test.Client.GetStringAsync("/Thrift/Details/2");
+        var reserveForm = ReserveForm(expiredDetails);
+        await test.Client.GetStringAsync("/Thrift");
+        var afterBrowsing = await test.SnapshotAsync();
+        Assert.Equal(beforeBrowsing.Reservations.Select(ReservationSnapshot), afterBrowsing.Reservations.Select(ReservationSnapshot));
+        Assert.Equal(beforeBrowsing.Listings.Select(row => (row.Id, row.Status)),
+            afterBrowsing.Listings.Select(row => (row.Id, row.Status)));
+        Assert.Equal(beforeBrowsing.Audits.Select(row => (row.Id, row.Action, row.OccurredAtUtc)),
+            afterBrowsing.Audits.Select(row => (row.Id, row.Action, row.OccurredAtUtc)));
+
+        using (var reserveAgain = await test.PostAsync(2, Token(reserveForm))) AssertPrg(reserveAgain);
+        Assert.Contains("Active reservations: 2 of 3", await test.Client.GetStringAsync(AccountPath));
+        var final = await test.SnapshotAsync();
+        Assert.Equal(5, final.Reservations.Length); // All previous records are retained.
+        Assert.Equal(ReservationStatus.Canceled, final.Reservations.Single(row => row.Id == canceledId).Status);
+        var originalSecond = initial.Reservations.Single(row => row.ListingId == 2);
+        Assert.Equal(ReservationStatus.Expired, final.Reservations.Single(row => row.Id == originalSecond.Id).Status);
+        var newer = Assert.Single(final.Reservations, row => row.ListingId == 2 && row.Status == ReservationStatus.Active);
+        Assert.Equal(InitialNow.AddHours(2).UtcDateTime, newer.ExpiresAtUtc);
+        Assert.Equal(ListingStatus.Held, final.Listings.Single(row => row.Id == 2).Status);
+        Assert.Equal(ListingStatus.Available, final.Listings.Single(row => row.Id == 1).Status);
+        // The other overdue hold need not be cleaned up to stop consuming the limit.
+        var delayedCleanup = final.Reservations.Single(row => row.ListingId == 3);
+        Assert.Equal(ReservationStatus.Active, delayedCleanup.Status);
+        Assert.Equal(InitialNow.AddHours(1).UtcDateTime, delayedCleanup.ExpiresAtUtc);
+        Assert.Equal(7, final.Audits.Length);
+        Assert.Equal(5, final.Audits.Count(row => row.Action == InventoryAuditActions.Reserved));
+        Assert.Single(final.Audits, row => row.Action == InventoryAuditActions.ReservationCanceled);
+        Assert.Single(final.Audits, row => row.Action == InventoryAuditActions.ReservationExpired);
+    }
+
+    [Fact]
     public async Task Reserve_DuplicateSubmissionKeepsTheOriginalDeadlineAndSingleAudit()
     {
         await using var test = await ReserveTest.CreateAsync();

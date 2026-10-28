@@ -84,6 +84,35 @@ public class ReservationConcurrencyTests
     }
 
     [ReservationPostgresFact]
+    public async Task SimultaneousDuplicateSubmissions_CommitOneHoldAndOneAudit()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var listingId = await test.AddListingAsync();
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedAsync(blocker, clock, null,
+            new Request(student, listingId), new Request(student, listingId));
+
+        var success = Assert.Single(results, result => result.Succeeded);
+        Assert.Equal(ReservationCreationStatus.AlreadyReserved,
+            Assert.Single(results, result => !result.Succeeded).Status);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.AsNoTracking().SingleAsync();
+        Assert.Equal(success.ReservationId, reservation.Id);
+        Assert.Equal(student, reservation.UserId);
+        Assert.Equal(InitialNow.UtcDateTime, reservation.CreatedAtUtc);
+        Assert.Equal(InitialNow.AddHours(1).UtcDateTime, reservation.ExpiresAtUtc);
+        Assert.Equal(ReservationStatus.Active, reservation.Status);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(InventoryAuditActions.Reserved, audit.Action);
+        Assert.Equal(student, audit.ActorUserId);
+        Assert.Equal(listingId, audit.ListingId);
+    }
+
+    [ReservationPostgresFact]
     public async Task OwnDuplicateRequest_ReturnsAlreadyReservedWithoutExtendingOrDuplicatingTheReservation()
     {
         await using var test = await TestDatabase.CreateAsync();
@@ -239,6 +268,101 @@ public class ReservationConcurrencyTests
         Assert.Equal(InventoryAuditActions.ReservationExpired, audit.Action);
         Assert.Equal(ReservationService.ExpirationActorId, audit.ActorUserId);
         Assert.Equal(deadline.UtcDateTime, audit.OccurredAtUtc);
+    }
+
+    [ReservationPostgresFact]
+    public async Task CancellationExpirationAndReplacementAtDeadline_PreserveTheNewHold()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var oldStudent = await test.AddStudentAsync();
+        var newStudent = await test.AddStudentAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var oldId = await test.AddReservationAsync(oldStudent, listingId, InitialNow);
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, oldStudent, listingId);
+
+        // All three operations must reach a real PostgreSQL lock wait. Creation
+        // reconciles the expired hold using the old owner's lock before taking its own.
+        var results = await test.RunBlockedOperationsAsync<
+            (ReservationCreationResult? Creation, ReservationOperationResult? Transition)>(blocker, clock, null, false,
+            async (name, token) => (await test.ReserveAsync(new(newStudent, listingId), clock, name, token), null),
+            async (name, token) => (null, await test.TransitionAsync(oldId, oldStudent, clock, name, token)),
+            async (name, token) => (null, await test.TransitionAsync(oldId, null, clock, name, token)));
+
+        var created = Assert.Single(results, result => result.Creation is not null).Creation!;
+        Assert.True(created.Succeeded);
+        foreach (var result in results.Where(result => result.Transition is not null))
+            Assert.Contains(result.Transition!.Status,
+                new[] { ReservationOperationStatus.Expired, ReservationOperationStatus.NotActive });
+
+        // Requests based on the old ID remain harmless after replacement commits.
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.TransitionAsync(oldId, oldStudent, clock, "repeat_cancel")).Status);
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.TransitionAsync(oldId, null, clock, "repeat_expire")).Status);
+        await using var database = test.Context();
+        Assert.Equal(ReservationStatus.Expired,
+            (await database.Reservations.SingleAsync(row => row.Id == oldId)).Status);
+        var current = await database.Reservations.SingleAsync(row => row.Status == ReservationStatus.Active);
+        Assert.Equal(created.ReservationId, current.Id);
+        Assert.Equal(newStudent, current.UserId);
+        Assert.Equal(InitialNow.AddHours(1).UtcDateTime, current.ExpiresAtUtc);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        Assert.Equal(2, await database.Reservations.CountAsync());
+        var audits = await database.AuditEvents.OrderBy(row => row.Id).ToListAsync();
+        Assert.Equal(2, audits.Count);
+        Assert.Equal(InventoryAuditActions.ReservationExpired, audits[0].Action);
+        Assert.Equal(ReservationService.ExpirationActorId, audits[0].ActorUserId);
+        Assert.Equal(InventoryAuditActions.Reserved, audits[1].Action);
+        Assert.Equal(newStudent, audits[1].ActorUserId);
+    }
+
+    [ReservationPostgresFact]
+    public async Task CancellationBeforeDeadline_CompetingWithNewReservationCannotReleaseReplacement()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var oldStudent = await test.AddStudentAsync();
+        var newStudent = await test.AddStudentAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var oldId = await test.AddReservationAsync(oldStudent, listingId, InitialNow.AddHours(1));
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(false, oldStudent, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<
+            (ReservationCreationResult? Creation, ReservationOperationResult? Transition)>(blocker, clock, null, false,
+            async (name, token) => (null, await test.TransitionAsync(oldId, oldStudent, clock, name, token)),
+            async (name, token) => (await test.ReserveAsync(new(newStudent, listingId), clock, name, token), null));
+
+        Assert.Equal(ReservationOperationStatus.Canceled,
+            Assert.Single(results, result => result.Transition is not null).Transition!.Status);
+        var created = Assert.Single(results, result => result.Creation is not null).Creation!;
+        // If creation wins the lock first, it must reject the still-valid old hold.
+        // A later deliberate retry is then allowed after cancellation has committed.
+        if (!created.Succeeded)
+        {
+            Assert.Equal(ReservationCreationStatus.Unavailable, created.Status);
+            created = await test.ReserveAsync(new(newStudent, listingId), clock, "retry_after_cancel");
+        }
+        Assert.True(created.Succeeded);
+        clock.AdvanceTo(InitialNow.AddMinutes(1));
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.TransitionAsync(oldId, oldStudent, clock, "stale_cancel")).Status);
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.TransitionAsync(oldId, null, clock, "stale_expire")).Status);
+        await using var database = test.Context();
+        Assert.Equal(ReservationStatus.Canceled,
+            (await database.Reservations.SingleAsync(row => row.Id == oldId)).Status);
+        var current = await database.Reservations.SingleAsync(row => row.Status == ReservationStatus.Active);
+        Assert.Equal(created.ReservationId, current.Id);
+        Assert.Equal(newStudent, current.UserId);
+        Assert.Equal(InitialNow.AddHours(1).UtcDateTime, current.ExpiresAtUtc);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        Assert.Equal(2, await database.Reservations.CountAsync());
+        var audits = await database.AuditEvents.OrderBy(row => row.Id).ToListAsync();
+        Assert.Equal(new[] { InventoryAuditActions.ReservationCanceled, InventoryAuditActions.Reserved },
+            audits.Select(row => row.Action));
+        Assert.Equal(oldStudent, audits[0].ActorUserId);
+        Assert.Equal(newStudent, audits[1].ActorUserId);
     }
 
     [ReservationPostgresFact]
@@ -616,7 +740,13 @@ public class ReservationConcurrencyTests
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var names = operations.Select((_, index) => "request" + index).ToArray();
-            var tasks = operations.Select((operation, index) => operation(names[index], timeout.Token)).ToArray();
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var tasks = operations.Select(async (operation, index) =>
+            {
+                await start.Task.WaitAsync(timeout.Token);
+                return await operation(names[index], timeout.Token);
+            }).ToArray();
+            start.SetResult();
             try
             {
                 await WaitUntilBlockedAsync(names.Select(ApplicationName).ToArray(), timeout.Token);

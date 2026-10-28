@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 checkpoints 1–5 implement policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
 
 ## Reservation Duration
 
@@ -107,6 +107,16 @@ My Reservations shows all current, unexpired Active reservations and the active 
 The owner comes only from the signed-in server identity. Both query branches apply that owner filter before projection or limiting, and one combined SQL query uses the same captured UTC instant for the count and sections. Passing another `UserId` or reservation ID to the page does not choose another person's history. Cancellation checks ownership and status again under the existing locks; a valid login or Student role alone does not authorize access to somebody else's reservation.
 
 Titles and reservation dates remain visible for owned historical records even after the listing leaves the public catalog. The page shows campus-local times and an explicit timezone/offset, without linking private history to unavailable public detail routes. No GET updates the reservation status, releases a listing, or creates an audit; the deadline still controls effective status and count until a later POST or worker persists cleanup.
+
+## Verification and Remaining Checks
+
+On October 27, 2026, the complete suite passed **514 tests, 0 failed, 0 skipped**, including 19 reservation and 3 catalog tests against dedicated disposable PostgreSQL 18.6 databases. Restore and build passed with no warnings or errors; the safe EF model check found no pending changes and the whitespace check passed. The development database was not used. No migration or production-code change was needed in checkpoint 6.
+
+PostgreSQL race tests use committed fixtures, separate connections/DbContexts, a shared start signal, and observed lock waits before releasing competing operations. They verify one winner for a shared item, at most one success when a student with two holds requests two more items, one hold/audit for simultaneous duplicates, and cancellation/expiration racing a replacement without releasing its new hold. The actual migration and filtered Active index are exercised, including refusal of conflicting preexisting data without deleting it. Failed audit writes roll back reservation and inventory changes.
+
+The HTTP workflow test creates three reservations through protected forms, rejects a fourth, cancels to free a slot, then crosses the exact deadline and reserves again while other overdue rows still await cleanup. Account and public GETs reflect the deadline without saving changes. Existing controlled-time tests cover pickup boundaries, daylight saving, repeated processing, ownership, and worker failures/shutdown; existing Staff and catalog tests still pass.
+
+A two-account manual browser walkthrough, mobile layout/focus review, and real-time expiration check are **pending**; the steps are in the README. Passing HTTP tests does not verify those visual checks. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. Staff pickup confirmation and operational decisions below remain open.
 
 ## Decisions Still Needed
 
