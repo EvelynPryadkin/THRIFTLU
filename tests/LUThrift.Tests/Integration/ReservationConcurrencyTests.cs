@@ -628,6 +628,220 @@ public class ReservationConcurrencyTests
         Assert.Empty(database.ChangeTracker.Entries());
     }
 
+    [ReservationPostgresTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PickupWaitingForStudentOwnerOrListing_RechecksExactDeadlineWithoutWrites(bool ownerLock)
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        Assert.NotEqual(student, staff);
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var deadline = InitialNow.AddMinutes(1);
+        var reservationId = await test.AddReservationAsync(student, listingId, deadline);
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(ownerLock, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, deadline, true,
+            (name, token) => test.PickupAsync(reservationId, staff, clock, name, token));
+
+        var result = Assert.Single(results);
+        Assert.Equal(ReservationOperationStatus.DeadlinePassed, result.Status);
+        Assert.False(result.Changed);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Active, reservation.Status);
+        Assert.Equal(student, reservation.UserId);
+        Assert.Equal(deadline.UtcDateTime, reservation.ExpiresAtUtc);
+        Assert.Null(reservation.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        Assert.Empty(await database.AuditEvents.ToListAsync());
+    }
+
+    [ReservationPostgresFact]
+    public async Task ConcurrentStaffPickups_CommitOneFulfillmentNearClosingAndPreserveItsTimestamp()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var administrator = await test.AddPickupStaffAsync(ApplicationRoles.Administrator);
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        // Existing holds remain collectible one second before closing; creating a new
+        // one-hour reservation would be refused by these same synthetic pickup hours.
+        var deadline = InitialNow.AddHours(3);
+        var pickupTime = deadline.AddSeconds(-1);
+        var reservationId = await test.AddReservationAsync(student, listingId, deadline);
+        await using (var setup = test.Context())
+        {
+            await setup.Reservations.Where(row => row.Id == reservationId).ExecuteUpdateAsync(setters =>
+                setters.SetProperty(row => row.CreatedAtUtc, deadline.AddHours(-1).UtcDateTime));
+        }
+        var clock = new ControlledClock(pickupTime);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, null, true,
+            (name, token) => test.PickupAsync(reservationId, staff, clock, name, token),
+            (name, token) => test.PickupAsync(reservationId, administrator, clock, name, token));
+
+        Assert.Equal(ReservationOperationStatus.Fulfilled, Assert.Single(results, result => result.Changed).Status);
+        Assert.Equal(ReservationOperationStatus.NotActive, Assert.Single(results, result => !result.Changed).Status);
+        clock.AdvanceTo(deadline.AddMinutes(1));
+        var repeated = await test.PickupAsync(reservationId, staff, clock, "repeat_pickup");
+        Assert.Equal(ReservationOperationStatus.NotActive, repeated.Status);
+        Assert.False(repeated.Changed);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Fulfilled, reservation.Status);
+        Assert.Equal(pickupTime.UtcDateTime, reservation.FulfilledAtUtc);
+        Assert.Equal(deadline.UtcDateTime, reservation.ExpiresAtUtc);
+        Assert.Equal(student, reservation.UserId);
+        Assert.Equal(ListingStatus.Collected, await ListingStatusAsync(database, listingId));
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(InventoryAuditActions.ReservationFulfilled, audit.Action);
+        Assert.Contains(audit.ActorUserId, new[] { staff, administrator });
+        Assert.NotEqual(student, audit.ActorUserId);
+        Assert.Equal(listingId, audit.ListingId);
+        Assert.Equal(pickupTime.UtcDateTime, audit.OccurredAtUtc);
+        Assert.Contains(reservationId.ToString(System.Globalization.CultureInfo.InvariantCulture), audit.Details);
+        Assert.Contains("Active", audit.Details);
+        Assert.Contains("Fulfilled", audit.Details);
+        Assert.Contains("Held", audit.Details);
+        Assert.Contains("Collected", audit.Details);
+    }
+
+    [ReservationPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PickupWaitingForStudentOwner_RechecksRevokedOrInactiveStaff(bool deactivate)
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var reservationId = await test.AddReservationAsync(student, listingId, InitialNow.AddHours(1));
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, null, true,
+            async token =>
+            {
+                await using var update = test.Context("revoke_pickup_staff");
+                if (deactivate)
+                    await update.Users.Where(row => row.Id == staff).ExecuteUpdateAsync(
+                        setters => setters.SetProperty(row => row.IsActive, false), token);
+                else
+                    await update.UserRoles.Where(row => row.UserId == staff).ExecuteDeleteAsync(token);
+            },
+            (name, token) => test.PickupAsync(reservationId, staff, clock, name, token));
+
+        var result = Assert.Single(results);
+        Assert.Equal(ReservationOperationStatus.StaffRequired, result.Status);
+        Assert.False(result.Changed);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Active, reservation.Status);
+        Assert.Null(reservation.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        Assert.Empty(await database.AuditEvents.ToListAsync());
+    }
+
+    [ReservationPostgresFact]
+    public async Task PickupCompetingWithStudentCancellation_CommitsExactlyOneConsistentTransition()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var deadline = InitialNow.AddHours(1);
+        var reservationId = await test.AddReservationAsync(student, listingId, deadline);
+        await using var snapshot = test.Context("before_pickup_cancel_race");
+        var otherListings = await snapshot.Listings.AsNoTracking().Where(row => row.Id != listingId)
+            .OrderBy(row => row.Id).Select(row => new { row.Id, row.Status, row.CreatedAtUtc }).ToArrayAsync();
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, null, true,
+            (name, token) => test.PickupAsync(reservationId, staff, clock, name, token),
+            (name, token) => test.TransitionAsync(reservationId, student, clock, name, token));
+
+        var winner = Assert.Single(results, result => result.Changed);
+        Assert.Contains(winner.Status, new[] { ReservationOperationStatus.Fulfilled, ReservationOperationStatus.Canceled });
+        Assert.Equal(ReservationOperationStatus.NotActive, Assert.Single(results, result => !result.Changed).Status);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(reservationId, reservation.Id);
+        Assert.Equal(student, reservation.UserId);
+        Assert.Equal(deadline.UtcDateTime, reservation.ExpiresAtUtc);
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(listingId, audit.ListingId);
+        Assert.Equal(InitialNow.UtcDateTime, audit.OccurredAtUtc);
+        Assert.Equal(otherListings, await database.Listings.AsNoTracking().Where(row => row.Id != listingId)
+            .OrderBy(row => row.Id).Select(row => new { row.Id, row.Status, row.CreatedAtUtc }).ToArrayAsync());
+        if (winner.Status == ReservationOperationStatus.Fulfilled)
+        {
+            Assert.Equal(ReservationStatus.Fulfilled, reservation.Status);
+            Assert.Equal(InitialNow.UtcDateTime, reservation.FulfilledAtUtc);
+            Assert.Null(reservation.CancellationReason);
+            Assert.Equal(ListingStatus.Collected, await ListingStatusAsync(database, listingId));
+            Assert.Equal(InventoryAuditActions.ReservationFulfilled, audit.Action);
+            Assert.Equal(staff, audit.ActorUserId);
+        }
+        else
+        {
+            Assert.Equal(ReservationStatus.Canceled, reservation.Status);
+            Assert.Null(reservation.FulfilledAtUtc);
+            Assert.Equal(ListingStatus.Available, await ListingStatusAsync(database, listingId));
+            Assert.Equal(InventoryAuditActions.ReservationCanceled, audit.Action);
+            Assert.Equal(student, audit.ActorUserId);
+        }
+    }
+
+    [ReservationPostgresFact]
+    public async Task PickupAuditFailure_RollsBackFulfillmentTimestampAndInventoryBeforeRetry()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var reservationId = await test.AddReservationAsync(student, listingId, InitialNow.AddHours(1));
+        await using (var setup = test.Context())
+        {
+            await setup.Database.ExecuteSqlRawAsync("""
+                CREATE FUNCTION reject_pickup_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'Private pickup audit fixture failure'; END;
+                $$;
+                CREATE TRIGGER reject_pickup_audit BEFORE INSERT ON "AuditEvents"
+                FOR EACH ROW EXECUTE FUNCTION reject_pickup_audit();
+                """);
+        }
+        var clock = new ControlledClock(InitialNow);
+
+        var failed = await test.PickupAsync(reservationId, staff, clock, "pickup_audit_failure");
+
+        Assert.Equal(ReservationOperationStatus.PersistenceFailed, failed.Status);
+        Assert.False(failed.Changed);
+        Assert.DoesNotContain("Private pickup audit fixture failure", failed.Message);
+        Assert.DoesNotContain("Postgres", failed.Message, StringComparison.OrdinalIgnoreCase);
+        await using (var check = test.Context())
+        {
+            var reservation = await check.Reservations.SingleAsync();
+            Assert.Equal(ReservationStatus.Active, reservation.Status);
+            Assert.Null(reservation.FulfilledAtUtc);
+            Assert.Equal(ListingStatus.Held, await ListingStatusAsync(check, listingId));
+            Assert.Empty(await check.AuditEvents.ToListAsync());
+            await check.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_pickup_audit ON \"AuditEvents\";");
+        }
+        clock.AdvanceTo(InitialNow.AddMinutes(1));
+        var retry = await test.PickupAsync(reservationId, staff, clock, "pickup_after_audit_failure");
+        Assert.Equal(ReservationOperationStatus.Fulfilled, retry.Status);
+        await using var final = test.Context();
+        Assert.Equal(InitialNow.AddMinutes(1).UtcDateTime,
+            (await final.Reservations.SingleAsync()).FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Collected, await ListingStatusAsync(final, listingId));
+        Assert.Single(await final.AuditEvents.ToListAsync());
+    }
+
     private static object ReservationSnapshot(Reservation reservation)
         => (reservation.Id, reservation.ListingId, reservation.UserId, reservation.Status,
             reservation.CreatedAtUtc, reservation.ExpiresAtUtc, reservation.FulfilledAtUtc, reservation.CancellationReason);
@@ -726,6 +940,26 @@ public class ReservationConcurrencyTests
             return id;
         }
 
+        public async Task<string> AddPickupStaffAsync(string roleName = ApplicationRoles.Staff)
+        {
+            var id = Guid.NewGuid().ToString();
+            await using var database = Context();
+            var role = await database.Roles.SingleOrDefaultAsync(row => row.Name == roleName);
+            if (role is null)
+            {
+                role = new IdentityRole { Id = Guid.NewGuid().ToString(), Name = roleName, NormalizedName = roleName.ToUpperInvariant() };
+                database.Roles.Add(role);
+            }
+            database.Users.Add(new ApplicationUser
+            {
+                Id = id, DisplayName = "Pickup test staff", UserName = "staff-" + id,
+                IsActive = true, CreatedAtUtc = InitialNow.UtcDateTime
+            });
+            database.UserRoles.Add(new IdentityUserRole<string> { UserId = id, RoleId = role.Id });
+            await database.SaveChangesAsync();
+            return id;
+        }
+
         public async Task<int> AddReservationAsync(string userId, int listingId, DateTimeOffset expires,
             ReservationStatus status = ReservationStatus.Active)
         {
@@ -764,6 +998,16 @@ public class ReservationConcurrencyTests
             var overview = await Service(database, clock).GetForUserAsync(StudentPrincipal(userId));
             Assert.Empty(database.ChangeTracker.Entries());
             return overview;
+        }
+
+        public async Task<ReservationOperationResult> PickupAsync(int reservationId, string staffId,
+            ControlledClock clock, string name, CancellationToken cancellationToken = default)
+        {
+            await using var database = Context(name);
+            // The persisted role membership, not a client role claim, grants eligibility.
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, staffId)], "Pickup integration test"));
+            return await Service(database, clock).ConfirmPickupAsync(reservationId, principal, cancellationToken);
         }
 
         private static ReservationService Service(ApplicationDbContext database, ControlledClock clock)
@@ -811,8 +1055,14 @@ public class ReservationConcurrencyTests
                 new Func<string, CancellationToken, Task<ReservationCreationResult>>(
                     (name, token) => ReserveAsync(request, clock, name, token))).ToArray());
 
-        public async Task<T[]> RunBlockedOperationsAsync<T>(RowLock blocker, ControlledClock clock,
+        public Task<T[]> RunBlockedOperationsAsync<T>(RowLock blocker, ControlledClock clock,
             DateTimeOffset? advanceTo, bool assertClockNotRead,
+            params Func<string, CancellationToken, Task<T>>[] operations)
+            => RunBlockedOperationsAsync(blocker, clock, advanceTo, assertClockNotRead,
+                _ => Task.CompletedTask, operations);
+
+        public async Task<T[]> RunBlockedOperationsAsync<T>(RowLock blocker, ControlledClock clock,
+            DateTimeOffset? advanceTo, bool assertClockNotRead, Func<CancellationToken, Task> whileBlocked,
             params Func<string, CancellationToken, Task<T>>[] operations)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -831,6 +1081,7 @@ public class ReservationConcurrencyTests
                 {
                     Assert.Equal(0, clock.ReadCount); // Final eligibility/deadline checks must follow both locks.
                 }
+                await whileBlocked(timeout.Token);
                 if (advanceTo is { } instant)
                 {
                     clock.AdvanceTo(instant);

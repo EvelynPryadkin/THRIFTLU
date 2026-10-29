@@ -11,4 +11,5 @@ public static class InventoryAuditActions
     public const string Reserved = "ListingReserved";
     public const string ReservationCanceled = "ReservationCanceled";
     public const string ReservationExpired = "ReservationExpired";
+    public const string ReservationFulfilled = "ReservationFulfilled";
 }

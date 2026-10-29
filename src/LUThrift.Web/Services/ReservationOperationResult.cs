@@ -10,12 +10,17 @@ public enum ReservationOperationStatus
     AuthenticationRequired,
     StudentRequired,
     Conflict,
-    PersistenceFailed
+    PersistenceFailed,
+    Fulfilled,
+    StaffRequired,
+    InvalidState,
+    DeadlinePassed
 }
 
 public sealed record ReservationOperationResult(ReservationOperationStatus Status, string Message)
 {
-    public bool Changed => Status is ReservationOperationStatus.Canceled or ReservationOperationStatus.Expired;
+    public bool Changed => Status is ReservationOperationStatus.Canceled or ReservationOperationStatus.Expired
+        or ReservationOperationStatus.Fulfilled;
 }
 
 public sealed record ReservationExpirationBatchResult(int Processed, int Failed);
