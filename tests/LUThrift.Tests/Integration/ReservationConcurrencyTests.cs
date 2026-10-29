@@ -551,6 +551,83 @@ public class ReservationConcurrencyTests
         Assert.Empty(await database.AuditEvents.ToListAsync());
     }
 
+    [ReservationPostgresFact]
+    public async Task StaffPickupQuery_NormalizedLiteralSearchAndPagingTranslateWithoutChangingPostgresHistory()
+    {
+        // Reuse the guarded, migrated, disposable schema from the reservation tests.
+        await using var test = await TestDatabase.CreateAsync();
+        var staff = await test.AddStudentAsync();
+        var owner = await test.AddStudentAsync();
+        var otherOwner = await test.AddStudentAsync();
+        var normalizer = new UpperInvariantLookupNormalizer();
+        const string email = "Pickup%_!É@example.invalid";
+        const string otherEmail = "PickupOTHERÉ@example.invalid";
+        await using (var setup = test.Context())
+        {
+            setup.Roles.Add(new IdentityRole
+            {
+                Id = "pickup-staff-role", Name = ApplicationRoles.Staff,
+                NormalizedName = normalizer.NormalizeName(ApplicationRoles.Staff)
+            });
+            setup.UserRoles.Add(new IdentityUserRole<string> { UserId = staff, RoleId = "pickup-staff-role" });
+            await setup.SaveChangesAsync();
+            await setup.Users.Where(row => row.Id == owner).ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Email, email).SetProperty(row => row.NormalizedEmail, normalizer.NormalizeEmail(email)));
+            await setup.Users.Where(row => row.Id == otherOwner).ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Email, otherEmail).SetProperty(row => row.NormalizedEmail, normalizer.NormalizeEmail(otherEmail)));
+        }
+        var expected = new List<(int Id, DateTimeOffset Deadline)>();
+        for (var index = 44; index >= 0; index--)
+        {
+            var deadline = InitialNow.AddMinutes(5 + index / 3);
+            var id = await test.AddReservationAsync(owner, await test.AddListingAsync(ListingStatus.Held), deadline);
+            expected.Add((id, deadline));
+        }
+        await test.AddReservationAsync(otherOwner, await test.AddListingAsync(ListingStatus.Held), InitialNow.AddMinutes(1));
+        var expiredListing = await test.AddListingAsync(ListingStatus.Held);
+        var expiredId = await test.AddReservationAsync(owner, expiredListing, InitialNow);
+        var fulfilledId = await test.AddReservationAsync(owner, await test.AddListingAsync(ListingStatus.Collected),
+            InitialNow.AddMinutes(30), ReservationStatus.Fulfilled);
+        await using var database = test.Context("pickup_query");
+        var before = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        var listingStates = await database.Listings.AsNoTracking().OrderBy(row => row.Id)
+            .Select(row => new { row.Id, row.Status }).ToArrayAsync();
+        var service = new StaffPickupService(database, normalizer, new ControlledClock(InitialNow));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, staff)], "Test"));
+        var observed = new List<int>();
+
+        for (var number = 1; number <= 3; number++)
+        {
+            var result = await service.GetPageAsync(new() { StudentEmail = "  %_!e\u0301@EXAMPLE.INVALID  " }, principal, number);
+            Assert.True(result.Succeeded);
+            var page = Assert.IsType<StaffPickupPage>(result.Page);
+            Assert.Equal(45, page.TotalCount);
+            Assert.Equal(number == 3 ? 5 : 20, page.Items.Count);
+            Assert.Equal(number, page.PageNumber);
+            Assert.All(page.Items, item => Assert.Equal(email, item.StudentEmail));
+            observed.AddRange(page.Items.Select(item => item.ReservationId));
+        }
+        Assert.Equal(expected.OrderBy(item => item.Deadline).ThenBy(item => item.Id).Select(item => item.Id), observed);
+        Assert.Equal(45, observed.Distinct().Count());
+        var expired = await service.GetPageAsync(new() { ReservationId = expiredId }, principal);
+        Assert.Equal(ReservationStatus.Expired, Assert.Single(expired.Page!.Items).ReservationStatus);
+        Assert.Equal(ListingStatus.Held, Assert.Single(expired.Page.Items).ListingStatus);
+        var fulfilled = await service.GetPageAsync(new() { ReservationId = fulfilledId }, principal);
+        Assert.Equal(ReservationStatus.Fulfilled, Assert.Single(fulfilled.Page!.Items).ReservationStatus);
+        Assert.Equal(ListingStatus.Collected, Assert.Single(fulfilled.Page.Items).ListingStatus);
+
+        await database.UserRoles.Where(row => row.UserId == staff && row.RoleId == "pickup-staff-role").ExecuteDeleteAsync();
+        var denied = await service.GetPageAsync(new(), principal);
+        Assert.Equal(StaffPickupQueryStatus.StaffRequired, denied.Status);
+        Assert.Null(denied.Page);
+        var after = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
+        Assert.Equal(before.Select(ReservationSnapshot), after.Select(ReservationSnapshot));
+        Assert.Equal(listingStates, await database.Listings.AsNoTracking().OrderBy(row => row.Id)
+            .Select(row => new { row.Id, row.Status }).ToArrayAsync());
+        Assert.Empty(await database.AuditEvents.ToListAsync());
+        Assert.Empty(database.ChangeTracker.Entries());
+    }
+
     private static object ReservationSnapshot(Reservation reservation)
         => (reservation.Id, reservation.ListingId, reservation.UserId, reservation.Status,
             reservation.CreatedAtUtc, reservation.ExpiresAtUtc, reservation.FulfilledAtUtc, reservation.CancellationReason);

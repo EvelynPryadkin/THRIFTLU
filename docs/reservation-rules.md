@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Staff pickup confirmation remains future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Week 7 checkpoint 1 adds read-only staff pickup queries. Staff pickup pages and state-changing actions remain future work.
 
 ## Reservation Duration
 
@@ -108,6 +108,31 @@ The owner comes only from the signed-in server identity. Both query branches app
 
 Titles and reservation dates remain visible for owned historical records even after the listing leaves the public catalog. The page shows campus-local times and an explicit timezone/offset, without linking private history to unavailable public detail routes. No GET updates the reservation status, releases a listing, or creates an audit; the deadline still controls effective status and count until a later POST or worker persists cleanup.
 
+## Staff Pickup Queries (Week 7, Checkpoint 1)
+
+The future staff PageModel will pass its authenticated server principal and validated search input to `StaffPickupService.GetPageAsync`, which queries EF Core through `ApplicationDbContext`. The existing Staff-or-Administrator folder policy remains unchanged. The query service additionally checks that the account still exists, is active, and currently has Staff or Administrator membership in the database. Cookie role claims alone cannot grant access to student information. This access check runs before any reservation query, is included in the count and row SQL, and is checked again before returning the result. Anonymous, inactive, missing, or no-longer-authorized accounts receive an access result without a page of student data.
+
+With no reservation ID, the query returns only stored Active reservations with `ExpiresAtUtc >` one captured server UTC time. Student-email search trims surrounding whitespace, treats a blank value as no filter, and accepts up to 256 characters. It uses Identity's registered email normalizer and literal substring matching against `NormalizedEmail`; case differences are ignored according to that normalization, while `%`, `_`, and `!` have no wildcard meaning. Control characters and invalid Unicode are rejected. This is an email search, so it intentionally accepts partial addresses rather than requiring a complete address. No accounts or emails are modified by searching.
+
+An exact positive reservation ID can retrieve an Active, Fulfilled, Canceled, or Expired record for explanation. An overdue stored Active row is displayed as Expired immediately, without saving cleanup. A record whose deadline equals the captured server time is expired. When ID and email are supplied together, both must match; an unknown or mismatched lookup returns an empty successful page. Invalid input returns an explicit validation result instead of silently broadening the search. A future PageModel must also honor binding errors for malformed numeric URL values before calling the service.
+
+Each row contains only the reservation ID, item title, student display name/email, effective reservation status, stored listing status, and UTC deadline. It does not return an account ID, account entity, audit records, cancellation details, password information, or tokens. Email can be absent on a legacy account. Active records with inconsistent inventory status remain visible for staff diagnosis; an Active row with a Missing, Collected, Archived, or otherwise non-Held listing is not eligible for pickup. Completed or expired ID lookups are history, not collectible reservations.
+
+Results are counted after filtering and ordered by deadline ascending, then reservation ID ascending, so the earliest deadlines appear first and ties are stable. Page size is fixed on the server at 20. Empty results use page 1; page numbers below 1 or beyond the last page are clamped before calculating the offset. Ordering, `Skip`, `Take`, and the seven-field projection run in the database. Queries are asynchronous, use cancellation tokens and no tracking, and never change inventory, reservations, timestamps, or audits. This checkpoint adds no staff page, action, or schema migration.
+
+## Planned Week 7 Pickup Transitions
+
+These are workflow rules for the next checkpoints, not implemented actions in checkpoint 1:
+
+| Staff action | Required reservation and listing state | Reservation after success | Listing after success |
+| --- | --- | --- | --- |
+| Confirm a valid pickup | Active, `ExpiresAtUtc >` fresh server time, and its listing still Held for this reservation | Fulfilled; set the existing `FulfilledAtUtc` to server UTC time | Collected |
+| Report the reserved item missing | Active, unexpired, and its listing still Held for this reservation | Canceled; record a safe server-supplied missing-item reason | Missing |
+
+Both future actions must recheck current staff eligibility, the deadline, and ownership of the hold using the existing reservation-owner → listing coordination. The reservation, listing change, and audit must commit atomically. Reporting a missing reserved item must not release it as Available. Neither action may overwrite a newer hold, delete history, or trust a status, actor, or timestamp submitted by the browser. An earlier query result is only a snapshot and cannot authorize a later write.
+
+The strict deadline remains authoritative: at or after `ExpiresAtUtc`, the reservation is expired and cannot be fulfilled, extended, or treated as an active pickup. Expired and completed records can be looked up for explanation; any subsequent inventory handling must respect the current listing and reservation state. Official identity-check procedures and late-arrival exceptions are **unconfirmed**. No grace period or identity-document requirement is being invented here. Official pickup hours also remain unconfirmed.
+
 ## Verification and Remaining Checks
 
 On October 27, 2026, the complete suite passed **514 tests, 0 failed, 0 skipped**, including 19 reservation and 3 catalog tests against dedicated disposable PostgreSQL 18.6 databases. Restore and build passed with no warnings or errors; the safe EF model check found no pending changes and the whitespace check passed. The development database was not used. No migration or production-code change was needed in checkpoint 6.
@@ -116,7 +141,7 @@ PostgreSQL race tests use committed fixtures, separate connections/DbContexts, a
 
 The HTTP workflow test creates three reservations through protected forms, rejects a fourth, cancels to free a slot, then crosses the exact deadline and reserves again while other overdue rows still await cleanup. Account and public GETs reflect the deadline without saving changes. Existing controlled-time tests cover pickup boundaries, daylight saving, repeated processing, ownership, and worker failures/shutdown; existing Staff and catalog tests still pass.
 
-A two-account manual browser walkthrough, mobile layout/focus review, and real-time expiration check are **pending**; the steps are in the README. Passing HTTP tests does not verify those visual checks. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. Staff pickup confirmation and operational decisions below remain open.
+The Week 6 Chrome browser walkthrough was completed on October 28; its actual observations and coverage limits are recorded in the README. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. Week 7 staff pickup pages/actions and the operational decisions below remain open.
 
 ## Decisions Still Needed
 
