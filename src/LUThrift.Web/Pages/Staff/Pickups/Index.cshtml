@@ -1,0 +1,129 @@
+@page
+@model LUThrift.Web.Pages.Staff.Pickups.IndexModel
+@using System.Globalization
+@using LUThrift.Web.InputModels
+@using LUThrift.Web.Models
+@inject LUThrift.Web.Services.CampusTimeFormatter CampusTime
+@{
+    ViewData["Title"] = "Pickups";
+}
+
+<h1>@ViewData["Title"]</h1>
+<p>Review pending pickups or look up a reservation's history. Deadlines include the campus timezone and UTC offset.</p>
+<p>This dashboard is read-only. Without a reservation ID, only active, unexpired reservations are shown.</p>
+
+<form method="get" asp-page="./Index" class="row g-3 mb-4">
+    <div class="col-12">
+        <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+    </div>
+    <div class="col-md-4">
+        <label asp-for="Filter.ReservationId" class="form-label"></label>
+        <input asp-for="Filter.ReservationId" type="number" min="1" max="2147483647" step="1"
+               class="form-control" aria-describedby="reservation-id-help reservation-id-error" />
+        <div id="reservation-id-help" class="form-text">Use an exact ID to include completed or expired records.</div>
+        <span asp-validation-for="Filter.ReservationId" id="reservation-id-error" class="text-danger"></span>
+    </div>
+    <div class="col-md-8">
+        <label asp-for="Filter.StudentEmail" class="form-label"></label>
+        <input asp-for="Filter.StudentEmail" type="search" maxlength="@StaffPickupQueryInput.MaximumEmailSearchLength"
+               class="form-control" aria-describedby="student-email-help student-email-error" />
+        <div id="student-email-help" class="form-text">Search all or part of an email address. Both fields must match when used together.</div>
+        <span asp-validation-for="Filter.StudentEmail" id="student-email-error" class="text-danger"></span>
+    </div>
+    <div class="col-12 d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary">Search pickups</button>
+        <a asp-page="./Index" class="btn btn-outline-secondary">Clear search</a>
+    </div>
+</form>
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <p>Check the search fields and try again. No pickup records were loaded.</p>
+}
+else
+{
+    <p id="pickup-summary">@Model.Pickups.TotalCount @(Model.Pickups.TotalCount == 1 ? "reservation" : "reservations") found. Page @Model.Pickups.PageNumber of @Model.Pickups.TotalPages.</p>
+
+    @if (Model.Pickups.Items.Count == 0)
+    {
+        @if (Model.HasFilters)
+        {
+            <p>No reservations match this search. Check the ID or email, or clear the search to see pending pickups.</p>
+        }
+        else
+        {
+            <p>No pending pickups right now. You can still look up a past reservation by its ID.</p>
+        }
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-lg-2 g-3">
+            @foreach (var pickup in Model.Pickups.Items)
+            {
+                <div class="col">
+                    <article class="card h-100" aria-labelledby="pickup-title-@pickup.ReservationId">
+                        <div class="card-body">
+                            <h2 id="pickup-title-@pickup.ReservationId" class="h5 card-title text-break">@pickup.ItemTitle</h2>
+                            <dl class="mb-0">
+                                <dt>Reservation ID</dt>
+                                <dd>@pickup.ReservationId</dd>
+                                <dt>Student display name</dt>
+                                <dd class="text-break">@pickup.StudentDisplayName</dd>
+                                <dt>Student email</dt>
+                                <dd class="text-break">@(string.IsNullOrWhiteSpace(pickup.StudentEmail) ? "Not available" : pickup.StudentEmail)</dd>
+                                <dt>Pickup deadline</dt>
+                                <dd class="text-break"><time datetime="@DateTime.SpecifyKind(pickup.ExpiresAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(pickup.ExpiresAtUtc)</time></dd>
+                                <dt>Reservation status</dt>
+                                <dd>@pickup.ReservationStatus</dd>
+                                <dt>Listing status</dt>
+                                <dd>@pickup.ListingStatus</dd>
+                            </dl>
+                            @if (pickup.ReservationStatus == ReservationStatus.Expired)
+                            {
+                                <p class="mb-0">Expired: the pickup deadline has passed. This reservation is not eligible for pickup.</p>
+                            }
+                            else if (pickup.ReservationStatus == ReservationStatus.Fulfilled)
+                            {
+                                <p class="mb-0">Completed: this reservation has already been fulfilled and is not eligible for pickup.</p>
+                            }
+                            else if (pickup.ReservationStatus == ReservationStatus.Canceled)
+                            {
+                                <p class="mb-0">Canceled: this reservation is no longer eligible for pickup.</p>
+                            }
+                            else if (pickup.ListingStatus != ListingStatus.Held)
+                            {
+                                <p class="mb-0">The item is not held for pickup. Review its inventory status before proceeding.</p>
+                            }
+                        </div>
+                    </article>
+                </div>
+            }
+        </div>
+    }
+
+    <nav aria-label="Pickup pagination" class="mt-4">
+        <ul class="pagination flex-wrap">
+            @if (Model.Pickups.HasPreviousPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Pickups.PageNumber - 1)"
+                    class="page-link" rel="prev">Previous</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Previous</span></li>
+            }
+            <li class="page-item active"><span class="page-link" aria-current="page">Page @Model.Pickups.PageNumber of @Model.Pickups.TotalPages</span></li>
+            @if (Model.Pickups.HasNextPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Pickups.PageNumber + 1)"
+                    class="page-link" rel="next">Next</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Next</span></li>
+            }
+        </ul>
+    </nav>
+}
+
+<a asp-page="/Staff/Index" class="d-inline-block mt-3">Back to staff</a>
