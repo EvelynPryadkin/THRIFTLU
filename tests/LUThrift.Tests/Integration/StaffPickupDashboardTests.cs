@@ -88,7 +88,7 @@ public sealed class StaffPickupDashboardTests
     }
 
     [Fact]
-    public async Task Dashboard_RendersEncodedFieldsCampusDeadlineAndAccessibleReadOnlyControls()
+    public async Task Dashboard_GetRendersEncodedFieldsCampusDeadlineAndAccessibleControlsWithoutWrites()
     {
         await using var test = await DashboardTest.CreateAsync(ApplicationRoles.Staff);
         var reservation = await test.SeedAsync("<script>alert('item')</script> " + new string('x', 100));
@@ -118,8 +118,10 @@ public sealed class StaffPickupDashboardTests
         Assert.Contains(formatter.Format(reservation.ExpiresAtUtc), WebUtility.HtmlDecode(time));
         Assert.Contains("America/Chicago, UTC-05:00", WebUtility.HtmlDecode(time));
         Assert.Contains("text-break", card);
-        Assert.Empty(Tags(card, "button"));
-        Assert.Empty(Tags(card, "form"));
+        var confirmation = Assert.Single(Tags(card, "form"));
+        Assert.Equal("post", Attribute(confirmation, "method"));
+        Assert.Contains("handler=ConfirmPickup", Attribute(confirmation, "action"));
+        Assert.Equal("submit", Attribute(Assert.Single(Tags(card, "button")), "type"));
 
         var form = SearchForm(html);
         Assert.Equal("get", Attribute(form, "method"));

@@ -4,4 +4,4 @@ namespace LUThrift.Web.ViewModels;
 
 public sealed record ReservationSummary(
     int Id, int ListingId, string Title, DateTime CreatedAtUtc, DateTime ExpiresAtUtc,
-    ReservationStatus Status, bool CanCancel);
+    ReservationStatus Status, bool CanCancel, DateTime? FulfilledAtUtc);

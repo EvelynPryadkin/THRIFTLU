@@ -588,6 +588,22 @@ public class ReservationConcurrencyTests
         var expiredId = await test.AddReservationAsync(owner, expiredListing, InitialNow);
         var fulfilledId = await test.AddReservationAsync(owner, await test.AddListingAsync(ListingStatus.Collected),
             InitialNow.AddMinutes(30), ReservationStatus.Fulfilled);
+        var supersededIds = expected.Take(2).Select(item => item.Id).ToHashSet();
+        await using (var setup = test.Context("pickup_hint_fixtures"))
+        {
+            foreach (var oldId in supersededIds)
+            {
+                var listingId = await setup.Reservations.Where(row => row.Id == oldId)
+                    .Select(row => row.ListingId).SingleAsync();
+                var historyId = await test.AddReservationAsync(owner, listingId,
+                    InitialNow.AddMinutes(-10), ReservationStatus.Canceled);
+                // One record has a later timestamp; the other has the same timestamp
+                // and a greater ID. Both make the older Active hold inconsistent.
+                if (oldId == expected[0].Id)
+                    await setup.Reservations.Where(row => row.Id == historyId).ExecuteUpdateAsync(setters =>
+                        setters.SetProperty(row => row.CreatedAtUtc, InitialNow.AddHours(-1).UtcDateTime));
+            }
+        }
         await using var database = test.Context("pickup_query");
         var before = await database.Reservations.AsNoTracking().OrderBy(row => row.Id).ToArrayAsync();
         var listingStates = await database.Listings.AsNoTracking().OrderBy(row => row.Id)
@@ -605,6 +621,7 @@ public class ReservationConcurrencyTests
             Assert.Equal(number == 3 ? 5 : 20, page.Items.Count);
             Assert.Equal(number, page.PageNumber);
             Assert.All(page.Items, item => Assert.Equal(email, item.StudentEmail));
+            Assert.All(page.Items, item => Assert.Equal(!supersededIds.Contains(item.ReservationId), item.CanConfirmPickup));
             observed.AddRange(page.Items.Select(item => item.ReservationId));
         }
         Assert.Equal(expected.OrderBy(item => item.Deadline).ThenBy(item => item.Id).Select(item => item.Id), observed);
@@ -612,9 +629,11 @@ public class ReservationConcurrencyTests
         var expired = await service.GetPageAsync(new() { ReservationId = expiredId }, principal);
         Assert.Equal(ReservationStatus.Expired, Assert.Single(expired.Page!.Items).ReservationStatus);
         Assert.Equal(ListingStatus.Held, Assert.Single(expired.Page.Items).ListingStatus);
+        Assert.False(Assert.Single(expired.Page.Items).CanConfirmPickup);
         var fulfilled = await service.GetPageAsync(new() { ReservationId = fulfilledId }, principal);
         Assert.Equal(ReservationStatus.Fulfilled, Assert.Single(fulfilled.Page!.Items).ReservationStatus);
         Assert.Equal(ListingStatus.Collected, Assert.Single(fulfilled.Page.Items).ListingStatus);
+        Assert.False(Assert.Single(fulfilled.Page.Items).CanConfirmPickup);
 
         await database.UserRoles.Where(row => row.UserId == staff && row.RoleId == "pickup-staff-role").ExecuteDeleteAsync();
         var denied = await service.GetPageAsync(new(), principal);

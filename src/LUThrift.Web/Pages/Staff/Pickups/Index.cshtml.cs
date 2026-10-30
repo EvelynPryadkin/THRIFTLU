@@ -4,14 +4,17 @@ using LUThrift.Web.Services;
 using LUThrift.Web.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Routing;
 
 namespace LUThrift.Web.Pages.Staff.Pickups;
 
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public class IndexModel(StaffPickupService pickups) : PageModel
+public class IndexModel(StaffPickupService pickups, ReservationService reservations) : PageModel
 {
-    [BindProperty(SupportsGet = true)]
-    public StaffPickupQueryInput Filter { get; set; } = new();
+    public StaffPickupQueryInput Filter { get; private set; } = new();
+
+    [TempData]
+    public string? PickupMessage { get; set; }
 
     public StaffPickupPage Pickups { get; private set; } = new([], 0, 1);
     public bool HasFilters => Filter.ReservationId.HasValue || Filter.StudentEmail is not null;
@@ -29,8 +32,10 @@ public class IndexModel(StaffPickupService pickups) : PageModel
         return values;
     }
 
-    public async Task<IActionResult> OnGetAsync([FromQuery] string? pageNumber, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnGetAsync([FromQuery(Name = "Filter")] StaffPickupQueryInput filter,
+        [FromQuery] string? pageNumber, CancellationToken cancellationToken)
     {
+        Filter = filter;
         var requestedPage = int.TryParse(pageNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed : 1;
 
@@ -54,5 +59,26 @@ public class IndexModel(StaffPickupService pickups) : PageModel
 
         Pickups = result.Page!;
         return Page();
+    }
+
+    public async Task<IActionResult> OnPostConfirmPickupAsync([FromForm] int reservationId,
+        CancellationToken cancellationToken)
+    {
+        // Only the form's reservation ID is bound. Query IDs and submitted identities,
+        // statuses, timestamps, and search fields never choose or authorize a transition.
+        if (!ModelState.IsValid) reservationId = 0;
+        var result = await reservations.ConfirmPickupAsync(reservationId, User, cancellationToken);
+        if (result.Status == ReservationOperationStatus.AuthenticationRequired) return Challenge();
+        if (result.Status == ReservationOperationStatus.StaffRequired) return Forbid();
+
+        PickupMessage = result.Status == ReservationOperationStatus.NotActive
+            ? "This reservation is already completed or is no longer active. No new pickup was recorded."
+            : result.Message;
+
+        // ConfirmPickupAsync returns Fulfilled only after committing. PRG makes a
+        // browser refresh a read and leaves the selected record available for review.
+        return reservationId > 0
+            ? RedirectToPage("./Index", new RouteValueDictionary { ["Filter.ReservationId"] = reservationId })
+            : RedirectToPage("./Index");
     }
 }

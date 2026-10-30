@@ -30,6 +30,7 @@ public sealed class StaffPickupQueryTests
         var page = Page(await test.Service.GetPageAsync(new(), test.Actor));
 
         Assert.Equal(101, Assert.Single(page.Items).ReservationId);
+        Assert.True(page.Items[0].CanConfirmPickup);
         Assert.Equal(1, page.TotalCount);
         Assert.Equal(1, test.Clock.ReadCount);
         Assert.Empty(test.Database.ChangeTracker.Entries());
@@ -136,6 +137,7 @@ public sealed class StaffPickupQueryTests
         Assert.Equal(active ? 1 : 0, defaultPage.Items.Count);
         var row = Assert.Single(exactPage.Items);
         Assert.Equal(active ? ReservationStatus.Active : ReservationStatus.Expired, row.ReservationStatus);
+        Assert.Equal(active, row.CanConfirmPickup);
         Assert.Equal(ListingStatus.Held, row.ListingStatus);
         Assert.Equal(reservation.ExpiresAtUtc, row.ExpiresAtUtc);
         Assert.Equal(2, test.Clock.ReadCount);
@@ -155,6 +157,7 @@ public sealed class StaffPickupQueryTests
         var row = Assert.Single(Page(await test.Service.GetPageAsync(new() { ReservationId = 101 }, test.Actor)).Items);
 
         Assert.Equal(status, row.ReservationStatus);
+        Assert.False(row.CanConfirmPickup);
         Assert.Equal(Now.AddMinutes(30).UtcDateTime, row.ExpiresAtUtc);
     }
 
@@ -270,7 +273,7 @@ public sealed class StaffPickupQueryTests
     }
 
     [Fact]
-    public async Task Projection_ReturnsOnlySevenDisplayFieldsAndKeepsInconsistentListingStatusVisibleWithoutWrites()
+    public async Task Projection_ReturnsOnlyNeededDisplayFieldsAndKeepsInconsistentListingStatusVisibleWithoutWrites()
     {
         await using var test = await TestContext.CreateAsync();
         var reservation = test.Reservation(101);
@@ -287,10 +290,86 @@ public sealed class StaffPickupQueryTests
         Assert.Equal(ReservationStatus.Active, row.ReservationStatus);
         Assert.Equal(ListingStatus.Missing, row.ListingStatus);
         Assert.Equal(reservation.ExpiresAtUtc, row.ExpiresAtUtc);
+        Assert.False(row.CanConfirmPickup);
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(row));
-        Assert.Equal(new[] { "ExpiresAtUtc", "ItemTitle", "ListingStatus", "ReservationId", "ReservationStatus",
+        Assert.Equal(new[] { "CanConfirmPickup", "ExpiresAtUtc", "ItemTitle", "ListingStatus", "ReservationId", "ReservationStatus",
             "StudentDisplayName", "StudentEmail" },
             json.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(1, test.Clock.ReadCount);
+        await test.AssertUnchangedAsync(before);
+    }
+
+    [Theory]
+    [InlineData("valid", true)]
+    [InlineData("created now", true)]
+    [InlineData("draft", false)]
+    [InlineData("available", false)]
+    [InlineData("missing", false)]
+    [InlineData("collected", false)]
+    [InlineData("archived", false)]
+    [InlineData("fulfilled timestamp", false)]
+    [InlineData("cancellation reason", false)]
+    [InlineData("future creation", false)]
+    [InlineData("nonpositive duration", false)]
+    public async Task PickupHint_RequiresAConsistentUnexpiredHeldReservationWithoutSavingChanges(string scenario, bool expected)
+    {
+        await using var test = await TestContext.CreateAsync();
+        var reservation = test.Reservation(101);
+        switch (scenario)
+        {
+            case "created now": reservation.CreatedAtUtc = Now.UtcDateTime; break;
+            case "draft": reservation.Listing.Status = ListingStatus.Draft; break;
+            case "available": reservation.Listing.Status = ListingStatus.Available; break;
+            case "missing": reservation.Listing.Status = ListingStatus.Missing; break;
+            case "collected": reservation.Listing.Status = ListingStatus.Collected; break;
+            case "archived": reservation.Listing.Status = ListingStatus.Archived; break;
+            case "fulfilled timestamp": reservation.FulfilledAtUtc = Now.AddMinutes(-1).UtcDateTime; break;
+            case "cancellation reason": reservation.CancellationReason = "Private historical cancellation"; break;
+            case "future creation": reservation.CreatedAtUtc = Now.AddTicks(1).UtcDateTime; break;
+            case "nonpositive duration": reservation.ExpiresAtUtc = reservation.CreatedAtUtc; break;
+        }
+        await test.SeedAsync(reservation);
+        var before = await test.SnapshotAsync();
+
+        var row = Assert.Single(Page(await test.Service.GetPageAsync(new() { ReservationId = reservation.Id }, test.Actor)).Items);
+
+        Assert.Equal(expected, row.CanConfirmPickup);
+        Assert.Equal(1, test.Clock.ReadCount);
+        await test.AssertUnchangedAsync(before);
+    }
+
+    [Theory]
+    [InlineData("another active", false)]
+    [InlineData("newer history", false)]
+    [InlineData("same creation later id", false)]
+    [InlineData("older history", true)]
+    [InlineData("same creation earlier id", true)]
+    public async Task PickupHint_RejectsSupersededHoldsButAllowsEarlierHistory(string scenario, bool expected)
+    {
+        await using var test = await TestContext.CreateAsync();
+        var reservation = test.Reservation(101);
+        var other = test.Reservation(scenario == "same creation later id" ? 102 : 100,
+            userId: TestContext.OtherStudentId, status: ReservationStatus.Canceled);
+        other.Listing = reservation.Listing;
+        if (scenario == "another active")
+        {
+            // Deliberately model inconsistent imported data; the display hint must
+            // remain conservative even if the normal uniqueness guard is missing.
+            await test.Database.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_Reservations_ActiveListing\";");
+            other.Status = ReservationStatus.Active;
+            other.CancellationReason = null;
+            other.CreatedAtUtc = reservation.CreatedAtUtc.AddHours(-1);
+        }
+        if (scenario == "newer history") other.CreatedAtUtc = reservation.CreatedAtUtc.AddTicks(1);
+        if (scenario == "older history") other.CreatedAtUtc = reservation.CreatedAtUtc.AddTicks(-1);
+        await test.SeedAsync(reservation, other);
+        var before = await test.SnapshotAsync();
+
+        var row = Assert.Single(Page(await test.Service.GetPageAsync(new() { ReservationId = reservation.Id }, test.Actor)).Items);
+
+        Assert.Equal(ReservationStatus.Active, row.ReservationStatus);
+        Assert.Equal(ListingStatus.Held, row.ListingStatus);
+        Assert.Equal(expected, row.CanConfirmPickup);
         Assert.Equal(1, test.Clock.ReadCount);
         await test.AssertUnchangedAsync(before);
     }

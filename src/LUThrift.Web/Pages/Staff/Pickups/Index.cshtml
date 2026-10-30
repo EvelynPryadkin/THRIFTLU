@@ -10,7 +10,13 @@
 
 <h1>@ViewData["Title"]</h1>
 <p>Review pending pickups or look up a reservation's history. Deadlines include the campus timezone and UTC offset.</p>
-<p>This dashboard is read-only. Without a reservation ID, only active, unexpired reservations are shown.</p>
+<p>Without a reservation ID, only active, unexpired reservations are shown. Review the item and student details before confirming a pickup.</p>
+<p id="identity-check-note" class="text-muted">The official physical identity-check procedure is pending agreement with thrift-room staff.</p>
+
+@if (!string.IsNullOrWhiteSpace(Model.PickupMessage))
+{
+    <div id="pickup-message" class="alert alert-info" role="status">@Model.PickupMessage</div>
+}
 
 <form method="get" asp-page="./Index" class="row g-3 mb-4">
     <div class="col-12">
@@ -93,6 +99,18 @@ else
                             else if (pickup.ListingStatus != ListingStatus.Held)
                             {
                                 <p class="mb-0">The item is not held for pickup. Review its inventory status before proceeding.</p>
+                            }
+                            else if (!pickup.CanConfirmPickup)
+                            {
+                                <p class="mb-0">This record does not match a current collectible hold. Review its reservation history.</p>
+                            }
+                            @if (pickup.CanConfirmPickup)
+                            {
+                                <form method="post" asp-page="./Index" asp-page-handler="ConfirmPickup" asp-antiforgery="true" class="mt-3">
+                                    <input type="hidden" name="reservationId" value="@pickup.ReservationId" />
+                                    <button type="submit" class="btn btn-primary" aria-describedby="identity-check-note"
+                                            aria-label="Confirm pickup for reservation @pickup.ReservationId: @pickup.ItemTitle">Confirm pickup</button>
+                                </form>
                             }
                         </div>
                     </article>

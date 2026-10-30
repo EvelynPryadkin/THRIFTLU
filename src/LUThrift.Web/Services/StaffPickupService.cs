@@ -92,7 +92,14 @@ public sealed class StaffPickupService(
                 row.User.DisplayName, row.User.Email,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc <= now
                     ? ReservationStatus.Expired : row.Status,
-                row.Listing.Status, row.ExpiresAtUtc))
+                row.Listing.Status, row.ExpiresAtUtc,
+                row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now
+                    && row.CreatedAtUtc <= now && row.ExpiresAtUtc > row.CreatedAtUtc
+                    && row.FulfilledAtUtc == null && row.CancellationReason == null
+                    && row.Listing.Status == ListingStatus.Held
+                    && !context.Reservations.Any(other => other.ListingId == row.ListingId && other.Id != row.Id
+                        && (other.Status == ReservationStatus.Active || other.CreatedAtUtc > row.CreatedAtUtc
+                            || (other.CreatedAtUtc == row.CreatedAtUtc && other.Id > row.Id)))))
             .ToListAsync(cancellationToken);
 
         // Do not return a page/count if access was revoked while the queries ran.

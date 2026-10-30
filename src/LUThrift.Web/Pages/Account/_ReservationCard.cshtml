@@ -1,5 +1,6 @@
 @model LUThrift.Web.ViewModels.ReservationSummary
 @using System.Globalization
+@using LUThrift.Web.Models
 @inject LUThrift.Web.Services.CampusTimeFormatter CampusTime
 @{
     var createdAtUtc = DateTime.SpecifyKind(Model.CreatedAtUtc, DateTimeKind.Utc);
@@ -16,6 +17,18 @@
             <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(createdAtUtc)</time></dd>
             <dt>Deadline</dt>
             <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(expiresAtUtc)</time></dd>
+            @if (Model.Status == ReservationStatus.Fulfilled)
+            {
+                <dt>Collected</dt>
+                @if (Model.FulfilledAtUtc is { } fulfilledAtUtc)
+                {
+                    <dd class="text-break"><time datetime="@DateTime.SpecifyKind(fulfilledAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(fulfilledAtUtc)</time></dd>
+                }
+                else
+                {
+                    <dd>Collection time was not recorded.</dd>
+                }
+            }
         </dl>
         @if (Model.CanCancel)
         {

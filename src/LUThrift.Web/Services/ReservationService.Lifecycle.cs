@@ -75,7 +75,8 @@ public sealed partial class ReservationService
             .Select(row => new ReservationSummary(row.Id, row.ListingId, row.Listing.Title,
                 row.CreatedAtUtc, row.ExpiresAtUtc,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc <= now ? ReservationStatus.Expired : row.Status,
-                row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now))
+                row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now,
+                row.FulfilledAtUtc))
             .ToListAsync(cancellationToken);
         return new(rows.Where(row => row.CanCancel).ToArray(), rows.Where(row => !row.CanCancel).ToArray());
     }
