@@ -1,6 +1,6 @@
 # Reservation Rules
 
-These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Week 7 adds the staff pickup dashboard and atomic pickup confirmation. Reporting a reserved item missing remains future work.
+These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Week 7 adds the staff pickup dashboard, atomic pickup confirmation, and reporting a reserved item missing.
 
 ## Reservation Duration
 
@@ -73,7 +73,7 @@ PostgreSQL creation uses one `ReadCommitted` transaction and a consistent lock o
 4. Conditionally change Available to Held. Recheck pickup eligibility immediately before saving; if the clock moved backward, return a retry result instead of trusting a count from a later instant.
 5. Save the Active reservation and `ListingReserved` audit, then commit. The audit contains the listing ID, authenticated actor ID, UTC time, and fixed transition details. Any failed write or final eligibility check rolls back the entire operation.
 
-The user lock serializes competing requests for different items by the same student. The listing lock coordinates different students requesting one item. Locks last until commit or rollback, so the next waiting transaction sees committed changes before checking its limit or the listing. Every future reservation writer must preserve this coordination and lock order. Staff lifecycle actions already use conditional listing updates and cannot change a Held listing.
+The user lock serializes competing requests for different items by the same student. The listing lock coordinates different students requesting one item. Locks last until commit or rollback, so the next waiting transaction sees committed changes before checking its limit or the listing. Every future reservation writer must preserve this coordination and lock order. Ordinary inventory lifecycle actions use conditional listing updates and cannot change a Held listing; staff reservation actions use the reservation-owner → listing locks described below.
 
 The `EnforceSingleActiveReservationPerListing` migration adds a unique listing index filtered by the actual stored string `"Status" = 'Active'`. It rejects two stored Active rows even if one deadline has passed. Its preflight reports conflicting listing IDs and leaves existing data/history intact; resolve conflicts explicitly before retrying the migration. It does not silently cancel or delete records.
 
@@ -108,6 +108,8 @@ The owner comes only from the signed-in server identity. Both query branches app
 
 Titles and reservation dates remain visible for owned historical records even after the listing leaves the public catalog. Fulfilled records also show their saved `FulfilledAtUtc` as the collection time; legacy records without that timestamp say it was not recorded. The page shows campus-local times and an explicit timezone/offset, without linking private history to unavailable public detail routes. No GET updates the reservation status, releases a listing, or creates an audit; the deadline still controls effective status and count until a later POST or worker persists cleanup.
 
+When a reserved item is reported missing, that student's canceled history shows: “The item could not be found, so your reservation was canceled. You can browse for another item.” This is a server-controlled reason, stored in `CancellationReason`. The owned-history query exposes only that known explanation on Canceled records, not arbitrary historical notes or internal audit details. The canceled record no longer counts toward the three-active-reservation limit.
+
 ## Staff Pickup Queries (Week 7, Checkpoint 1)
 
 The staff PageModel passes its authenticated server principal and validated search input to `StaffPickupService.GetPageAsync`, which queries EF Core through `ApplicationDbContext`. The existing Staff-or-Administrator folder policy remains unchanged. The query service additionally checks that the account still exists, is active, and currently has Staff or Administrator membership in the database. Cookie role claims alone cannot grant access to student information. This access check runs before any reservation query, is included in the count and row SQL, and is checked again before returning the result. Anonymous, inactive, missing, or no-longer-authorized accounts receive an access result without a page of student data.
@@ -120,9 +122,9 @@ Each row contains the reservation ID, item title, student display name/email, ef
 
 Results are counted after filtering and ordered by deadline ascending, then reservation ID ascending, so the earliest deadlines appear first and ties are stable. Page size is fixed on the server at 20. Empty results use page 1; page numbers below 1 or beyond the last page are clamped before calculating the offset. Ordering, `Skip`, `Take`, and projection run in the database. Queries are asynchronous, use cancellation tokens and no tracking, and never change inventory, reservations, timestamps, or audits. Pickup display and confirmation reuse the existing schema.
 
-## Staff Pickup Confirmation and Remaining Transition
+## Staff Pickup Actions
 
-Pickup confirmation is implemented; reporting a reserved item missing is planned for a later checkpoint:
+Both actions are implemented for currently active, unexpired reservations with a matching Held item:
 
 | Staff action | Required reservation and listing state | Reservation after success | Listing after success |
 | --- | --- | --- | --- |
@@ -133,7 +135,9 @@ The Confirm pickup form sits beside the item, student, reservation ID, and deadl
 
 The reservation, listing change, and audit commit atomically. The audit identifies the staff actor, reservation, and Active/Fulfilled and Held/Collected transitions. A failed write rolls them all back. The page redirects after POST and displays success only after the service commits; refreshing the resulting GET cannot collect again. Stale, unknown, expired, and already-completed submissions receive safe feedback. Repeated requests preserve the original fulfillment time and audit. The collected item disappears from every public catalog filter and its public details return 404, while the student's own history retains the item and collection time.
 
-The future missing-item action must use the same authorization, deadline, and reservation-owner → listing coordination, and must leave the item Missing rather than Available. Neither action may overwrite a newer hold, delete history, or trust a status, actor, or timestamp submitted by the browser. An earlier query result is only a snapshot and cannot authorize a later write.
+The separate Report item missing form also submits only a reservation ID and antiforgery token under `/Staff/Pickups`. `ReservationService.ReportMissingAsync` uses the same current-account checks, student-owner → listing lock order, fresh deadline checks, and current-hold checks as pickup confirmation. In one transaction it changes Active to Canceled, saves the controlled reason, changes Held directly to Missing, and records a staff-attributed `ReservationItemMissing` audit referencing the reservation and both transitions. It never calls ordinary cancellation first: that would risk making the item Available between operations. Failed writes roll back the reason, reservation, inventory, and audit together.
+
+Missing inventory stays hidden from public results and details and cannot receive a new reservation. Repeated reports and later cancellation or expiration leave Missing unchanged and create no further transition audit. The record and its history are preserved. Ordinary inventory Mark missing still applies only to Available items; this action does not enable other inventory controls on Held items or automatically relist a missing item. Neither staff reservation action may overwrite a newer hold, delete history, or trust a status, actor, reason, or timestamp submitted by the browser. An earlier query result is only a snapshot and cannot authorize a later write. The shared display flag shows both forms only for the same eligible hold, but the service remains the authority.
 
 The strict deadline remains authoritative: at or after `ExpiresAtUtc`, the reservation is expired and cannot be fulfilled, extended, or treated as an active pickup. Expired and completed records can be looked up for explanation; any subsequent inventory handling must respect the current listing and reservation state. Official identity-check procedures and late-arrival exceptions are **unconfirmed**. No grace period or identity-document requirement is being invented here. Official pickup hours also remain unconfirmed.
 
@@ -145,7 +149,7 @@ PostgreSQL race tests use committed fixtures, separate connections/DbContexts, a
 
 The HTTP workflow test creates three reservations through protected forms, rejects a fourth, cancels to free a slot, then crosses the exact deadline and reserves again while other overdue rows still await cleanup. Account and public GETs reflect the deadline without saving changes. Existing controlled-time tests cover pickup boundaries, daylight saving, repeated processing, ownership, and worker failures/shutdown; existing Staff and catalog tests still pass.
 
-The Week 6 Chrome browser walkthrough was completed on October 28; its actual observations and coverage limits are recorded in the README. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. The reserved-item missing action and the operational decisions below remain open.
+The Week 6 Chrome browser walkthrough was completed on October 28; its actual observations and coverage limits are recorded in the README. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. The operational decisions below remain open.
 
 ## Decisions Still Needed
 

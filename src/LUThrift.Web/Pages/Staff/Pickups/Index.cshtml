@@ -111,6 +111,12 @@ else
                                     <button type="submit" class="btn btn-primary" aria-describedby="identity-check-note"
                                             aria-label="Confirm pickup for reservation @pickup.ReservationId: @pickup.ItemTitle">Confirm pickup</button>
                                 </form>
+                                <form method="post" asp-page="./Index" asp-page-handler="ReportMissing" asp-antiforgery="true" class="mt-3">
+                                    <input type="hidden" name="reservationId" value="@pickup.ReservationId" />
+                                    <p id="missing-help-@pickup.ReservationId" class="small">If this reserved item cannot be found, report it missing to cancel this reservation and remove the item from circulation.</p>
+                                    <button type="submit" class="btn btn-outline-danger" aria-describedby="missing-help-@pickup.ReservationId"
+                                            aria-label="Report item missing for reservation @pickup.ReservationId: @pickup.ItemTitle">Report item missing</button>
+                                </form>
                             }
                         </div>
                     </article>

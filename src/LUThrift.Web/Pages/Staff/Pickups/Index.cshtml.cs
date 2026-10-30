@@ -81,4 +81,18 @@ public class IndexModel(StaffPickupService pickups, ReservationService reservati
             ? RedirectToPage("./Index", new RouteValueDictionary { ["Filter.ReservationId"] = reservationId })
             : RedirectToPage("./Index");
     }
+
+    public async Task<IActionResult> OnPostReportMissingAsync([FromForm] int reservationId,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid) reservationId = 0;
+        var result = await reservations.ReportMissingAsync(reservationId, User, cancellationToken);
+        if (result.Status == ReservationOperationStatus.AuthenticationRequired) return Challenge();
+        if (result.Status == ReservationOperationStatus.StaffRequired) return Forbid();
+
+        PickupMessage = result.Message;
+        return reservationId > 0
+            ? RedirectToPage("./Index", new RouteValueDictionary { ["Filter.ReservationId"] = reservationId })
+            : RedirectToPage("./Index");
+    }
 }

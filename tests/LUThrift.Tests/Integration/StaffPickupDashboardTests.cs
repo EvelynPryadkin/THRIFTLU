@@ -118,10 +118,13 @@ public sealed class StaffPickupDashboardTests
         Assert.Contains(formatter.Format(reservation.ExpiresAtUtc), WebUtility.HtmlDecode(time));
         Assert.Contains("America/Chicago, UTC-05:00", WebUtility.HtmlDecode(time));
         Assert.Contains("text-break", card);
-        var confirmation = Assert.Single(Tags(card, "form"));
-        Assert.Equal("post", Attribute(confirmation, "method"));
-        Assert.Contains("handler=ConfirmPickup", Attribute(confirmation, "action"));
-        Assert.Equal("submit", Attribute(Assert.Single(Tags(card, "button")), "type"));
+        var actions = Tags(card, "form");
+        Assert.Equal(2, actions.Length);
+        Assert.All(actions, action => Assert.Equal("post", Attribute(action, "method")));
+        Assert.Single(actions, action => Attribute(action, "action").Contains("handler=ConfirmPickup", StringComparison.Ordinal));
+        Assert.Single(actions, action => Attribute(action, "action").Contains("handler=ReportMissing", StringComparison.Ordinal));
+        Assert.Equal(2, Tags(card, "button").Length);
+        Assert.All(Tags(card, "button"), button => Assert.Equal("submit", Attribute(button, "type")));
 
         var form = SearchForm(html);
         Assert.Equal("get", Attribute(form, "method"));

@@ -13,6 +13,11 @@
         <dl class="mb-0">
             <dt>Status</dt>
             <dd>@Model.Status</dd>
+            @if (Model.Status == ReservationStatus.Canceled && Model.CancellationMessage is { } reason)
+            {
+                <dt>Cancellation reason</dt>
+                <dd class="text-break">@reason</dd>
+            }
             <dt>Reserved</dt>
             <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(createdAtUtc)</time></dd>
             <dt>Deadline</dt>

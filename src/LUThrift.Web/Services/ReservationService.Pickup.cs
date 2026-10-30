@@ -9,21 +9,32 @@ namespace LUThrift.Web.Services;
 
 public sealed partial class ReservationService
 {
+    private enum StaffHoldAction { ConfirmPickup, ReportMissing }
+
     // The caller supplies the authenticated server principal, never a submitted actor ID or role.
-    public async Task<ReservationOperationResult> ConfirmPickupAsync(
+    public Task<ReservationOperationResult> ConfirmPickupAsync(
         int reservationId, ClaimsPrincipal? user, CancellationToken cancellationToken = default)
+        => RunStaffHoldActionAsync(reservationId, user, StaffHoldAction.ConfirmPickup, cancellationToken);
+
+    public Task<ReservationOperationResult> ReportMissingAsync(
+        int reservationId, ClaimsPrincipal? user, CancellationToken cancellationToken = default)
+        => RunStaffHoldActionAsync(reservationId, user, StaffHoldAction.ReportMissing, cancellationToken);
+
+    private async Task<ReservationOperationResult> RunStaffHoldActionAsync(
+        int reservationId, ClaimsPrincipal? user, StaffHoldAction action, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var actorId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (user?.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(actorId) || actorId.Length > 450)
-            return new(ReservationOperationStatus.AuthenticationRequired, "Sign in to confirm a pickup.");
+            return new(ReservationOperationStatus.AuthenticationRequired, action == StaffHoldAction.ReportMissing
+                ? "Sign in to report a reserved item missing." : "Sign in to confirm a pickup.");
 
         try
         {
             // A stale staff cookie must not authorize even a lookup of private reservation data.
             if (!await EligiblePickupStaff(actorId).AnyAsync(cancellationToken)) return PickupStaffRequired();
             if (reservationId <= 0) return ReservationNotFound();
-            return await ConfirmPickupInTransactionAsync(reservationId, actorId, cancellationToken);
+            return await TransitionStaffHoldInTransactionAsync(reservationId, actorId, action, cancellationToken);
         }
         catch (Exception exception) when (exception is DbUpdateConcurrencyException || IsDatabaseConflict(exception))
         {
@@ -32,15 +43,17 @@ public sealed partial class ReservationService
         catch (Exception exception) when (exception is DbUpdateException or DbException)
         {
             // Provider exceptions can contain account data; keep logs and messages generic.
-            logger.LogError("Reservation pickup could not be confirmed during persistence.");
-            return new(ReservationOperationStatus.PersistenceFailed,
-                "We couldn't confirm the pickup. Refresh before trying again.");
+            logger.LogError("A staff reservation action could not be confirmed during persistence.");
+            return new(ReservationOperationStatus.PersistenceFailed, action == StaffHoldAction.ReportMissing
+                ? "We couldn't report the item missing. Refresh before trying again."
+                : "We couldn't confirm the pickup. Refresh before trying again.");
         }
     }
 
-    private async Task<ReservationOperationResult> ConfirmPickupInTransactionAsync(
-        int reservationId, string actorId, CancellationToken cancellationToken)
+    private async Task<ReservationOperationResult> TransitionStaffHoldInTransactionAsync(
+        int reservationId, string actorId, StaffHoldAction action, CancellationToken cancellationToken)
     {
+        var reportingMissing = action == StaffHoldAction.ReportMissing;
         // Discover only the coordination keys here. Reread the reservation under both locks.
         var candidate = await context.Reservations.AsNoTracking().Where(row => row.Id == reservationId)
             .Select(row => new { row.UserId, row.ListingId }).SingleOrDefaultAsync(cancellationToken);
@@ -66,12 +79,14 @@ public sealed partial class ReservationService
             cancellationToken);
         if (reservation is null) return ReservationNotFound();
         if (reservation.Status != ReservationStatus.Active)
-            return new(ReservationOperationStatus.NotActive, "This reservation is no longer active and cannot be collected.");
+            return new(ReservationOperationStatus.NotActive, reportingMissing
+                ? "This reservation is no longer active. No item was reported missing."
+                : "This reservation is no longer active and cannot be collected.");
 
-        // Pickup uses the saved deadline, not creation's full-hour schedule check.
+        // Staff hold actions use the saved deadline, not creation's full-hour schedule check.
         // No time is read until both potentially blocking locks have been acquired.
         var checkedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
-        if (reservation.ExpiresAtUtc <= checkedAtUtc) return PickupDeadlinePassed();
+        if (reservation.ExpiresAtUtc <= checkedAtUtc) return PickupDeadlinePassed(reportingMissing);
         if (listingStatus != ListingStatus.Held || reservation.FulfilledAtUtc is not null
             || reservation.CancellationReason is not null || reservation.CreatedAtUtc > checkedAtUtc
             || reservation.ExpiresAtUtc <= reservation.CreatedAtUtc)
@@ -87,36 +102,46 @@ public sealed partial class ReservationService
 
         if (!await staff.AnyAsync(cancellationToken)) return PickupStaffRequired();
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
-        if (reservation.ExpiresAtUtc <= nowUtc) return PickupDeadlinePassed();
+        if (reservation.ExpiresAtUtc <= nowUtc) return PickupDeadlinePassed(reportingMissing);
         if (nowUtc < checkedAtUtc) return PickupConflict();
+
+        var nextReservationStatus = reportingMissing ? ReservationStatus.Canceled : ReservationStatus.Fulfilled;
+        var nextListingStatus = reportingMissing ? ListingStatus.Missing : ListingStatus.Collected;
+        DateTime? fulfilledAtUtc = reportingMissing ? null : nowUtc;
+        var cancellationReason = reportingMissing ? ReservationCancellationReasons.ItemNotFound : null;
 
         // Fresh time immediately before the transition; authorization is also in the
         // UPDATE predicate so a revocation committed since the last read cannot grant a write.
-        var fulfilled = await context.Reservations.Where(row => row.Id == reservation.Id
+        var transitioned = await context.Reservations.Where(row => row.Id == reservation.Id
                 && row.UserId == candidate.UserId && row.ListingId == candidate.ListingId
                 && row.Status == ReservationStatus.Active && row.FulfilledAtUtc == null && row.CancellationReason == null
                 && row.CreatedAtUtc == reservation.CreatedAtUtc && row.ExpiresAtUtc == reservation.ExpiresAtUtc
                 && row.ExpiresAtUtc > nowUtc && staff.Any())
-            .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.Status, ReservationStatus.Fulfilled)
-                .SetProperty(row => row.FulfilledAtUtc, nowUtc), cancellationToken);
-        if (fulfilled != 1)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.Status, nextReservationStatus)
+                .SetProperty(row => row.FulfilledAtUtc, fulfilledAtUtc)
+                .SetProperty(row => row.CancellationReason, cancellationReason), cancellationToken);
+        if (transitioned != 1)
             return await staff.AnyAsync(cancellationToken) ? PickupConflict() : PickupStaffRequired();
 
-        var collected = await context.Listings.Where(listing => listing.Id == candidate.ListingId
+        // A missing reserved item moves directly Held -> Missing in this same
+        // transaction. Ordinary cancellation would incorrectly release it as Available.
+        var inventoryChanged = await context.Listings.Where(listing => listing.Id == candidate.ListingId
                 && listing.Status == ListingStatus.Held
                 && !context.Reservations.Any(other => other.ListingId == listing.Id && other.Id != reservation.Id
                     && (other.Status == ReservationStatus.Active || other.CreatedAtUtc > reservation.CreatedAtUtc
                         || (other.CreatedAtUtc == reservation.CreatedAtUtc && other.Id > reservation.Id))))
-            .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, ListingStatus.Collected), cancellationToken);
-        if (collected != 1) return PickupConflict();
+            .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, nextListingStatus), cancellationToken);
+        if (inventoryChanged != 1) return PickupConflict();
 
         var audit = new AuditEvent
         {
             ListingId = candidate.ListingId,
             ActorUserId = actorId,
-            Action = InventoryAuditActions.ReservationFulfilled,
+            Action = reportingMissing ? InventoryAuditActions.ReservationItemMissing : InventoryAuditActions.ReservationFulfilled,
             OccurredAtUtc = nowUtc,
-            Details = $"Reservation {reservation.Id}: Active to Fulfilled; listing Held to Collected by staff pickup confirmation."
+            Details = reportingMissing
+                ? $"Reservation {reservation.Id}: Active to Canceled; listing Held to Missing because the reserved item could not be found."
+                : $"Reservation {reservation.Id}: Active to Fulfilled; listing Held to Collected by staff pickup confirmation."
         };
         context.AuditEvents.Add(audit);
         try
@@ -130,7 +155,9 @@ public sealed partial class ReservationService
             context.Entry(audit).State = EntityState.Detached;
             throw;
         }
-        return new(ReservationOperationStatus.Fulfilled, "Pickup confirmed. The item has been collected.");
+        return reportingMissing
+            ? new(ReservationOperationStatus.Canceled, "Item reported missing. The reservation was canceled.")
+            : new(ReservationOperationStatus.Fulfilled, "Pickup confirmed. The item has been collected.");
     }
 
     private IQueryable<string> EligiblePickupStaff(string actorId)
@@ -144,8 +171,10 @@ public sealed partial class ReservationService
     private static ReservationOperationResult PickupStaffRequired()
         => new(ReservationOperationStatus.StaffRequired, "An active Staff or Administrator account is required.");
 
-    private static ReservationOperationResult PickupDeadlinePassed()
-        => new(ReservationOperationStatus.DeadlinePassed, "The pickup deadline has passed. This reservation cannot be collected.");
+    private static ReservationOperationResult PickupDeadlinePassed(bool reportingMissing)
+        => new(ReservationOperationStatus.DeadlinePassed, reportingMissing
+            ? "The reservation deadline has passed. No item was reported missing."
+            : "The pickup deadline has passed. This reservation cannot be collected.");
 
     private static ReservationOperationResult PickupInvalidState()
         => new(ReservationOperationStatus.InvalidState, "This reservation no longer has a matching held item. Refresh and review its status.");

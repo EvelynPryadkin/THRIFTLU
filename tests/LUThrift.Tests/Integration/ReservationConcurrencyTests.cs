@@ -861,6 +861,227 @@ public class ReservationConcurrencyTests
         Assert.Single(await final.AuditEvents.ToListAsync());
     }
 
+    [ReservationPostgresTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MissingReportWaitingForStudentOwnerOrListing_RejectsExactDeadlineWithoutWrites(bool ownerLock)
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        Assert.NotEqual(student, staff);
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var deadline = InitialNow.AddMinutes(1);
+        var reservationId = await test.AddReservationAsync(student, listingId, deadline);
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(ownerLock, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, deadline, true,
+            (name, token) => test.ReportMissingAsync(reservationId, staff, clock, name, token));
+
+        var result = Assert.Single(results);
+        Assert.Equal(ReservationOperationStatus.DeadlinePassed, result.Status);
+        Assert.False(result.Changed);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Active, reservation.Status);
+        Assert.Equal(deadline.UtcDateTime, reservation.ExpiresAtUtc);
+        Assert.Null(reservation.CancellationReason);
+        Assert.Null(reservation.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Held, await ListingStatusAsync(database, listingId));
+        Assert.Empty(await database.AuditEvents.ToListAsync());
+    }
+
+    [ReservationPostgresFact]
+    public async Task ConcurrentMissingReports_CommitOneCancellationAndMissingAudit()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var administrator = await test.AddPickupStaffAsync(ApplicationRoles.Administrator);
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var deadline = InitialNow.AddHours(1);
+        var reservationId = await test.AddReservationAsync(student, listingId, deadline);
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, null, true,
+            (name, token) => test.ReportMissingAsync(reservationId, staff, clock, name, token),
+            (name, token) => test.ReportMissingAsync(reservationId, administrator, clock, name, token));
+
+        Assert.Equal(ReservationOperationStatus.Canceled, Assert.Single(results, result => result.Changed).Status);
+        Assert.Equal(ReservationOperationStatus.NotActive, Assert.Single(results, result => !result.Changed).Status);
+        clock.AdvanceTo(deadline.AddMinutes(1));
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.ReportMissingAsync(reservationId, staff, clock, "repeat_missing_report")).Status);
+        Assert.Equal(ReservationOperationStatus.NotActive,
+            (await test.TransitionAsync(reservationId, null, clock, "expiration_after_missing_report")).Status);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Canceled, reservation.Status);
+        Assert.Equal(ReservationCancellationReasons.ItemNotFound, reservation.CancellationReason);
+        Assert.Equal(deadline.UtcDateTime, reservation.ExpiresAtUtc);
+        Assert.Null(reservation.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Missing, await ListingStatusAsync(database, listingId));
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(InventoryAuditActions.ReservationItemMissing, audit.Action);
+        Assert.Contains(audit.ActorUserId, new[] { staff, administrator });
+        Assert.NotEqual(student, audit.ActorUserId);
+        Assert.Equal(listingId, audit.ListingId);
+        Assert.Equal(InitialNow.UtcDateTime, audit.OccurredAtUtc);
+        Assert.Contains(reservationId.ToString(System.Globalization.CultureInfo.InvariantCulture), audit.Details);
+        Assert.Contains("Active", audit.Details);
+        Assert.Contains("Canceled", audit.Details);
+        Assert.Contains("Held", audit.Details);
+        Assert.Contains("Missing", audit.Details);
+    }
+
+    [ReservationPostgresFact]
+    public async Task MissingReportCompetingWithCreation_NeverMakesTheReservedItemAvailable()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var owner = await test.AddStudentAsync();
+        var otherStudent = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var reservationId = await test.AddReservationAsync(owner, listingId, InitialNow.AddHours(1));
+        await using (var setup = test.Context())
+        {
+            // Reject even an intermediate Held -> Available update. Reporting an item
+            // missing must not reuse ordinary cancellation's inventory release.
+            await setup.Database.ExecuteSqlRawAsync("""
+                CREATE FUNCTION reject_missing_release() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'Missing item must never become available'; END;
+                $$;
+                CREATE TRIGGER reject_missing_release BEFORE UPDATE ON "Listings"
+                FOR EACH ROW WHEN (OLD."Status" = 'Held' AND NEW."Status" = 'Available')
+                EXECUTE FUNCTION reject_missing_release();
+                """);
+        }
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(false, owner, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<
+            (ReservationCreationResult? Creation, ReservationOperationResult? Missing)>(blocker, clock, null, false,
+            async (name, token) => (null, await test.ReportMissingAsync(reservationId, staff, clock, name, token)),
+            async (name, token) => (await test.ReserveAsync(new(otherStudent, listingId), clock, name, token), null));
+
+        Assert.Equal(ReservationOperationStatus.Canceled,
+            Assert.Single(results, result => result.Missing is not null).Missing!.Status);
+        var creation = Assert.Single(results, result => result.Creation is not null).Creation!;
+        Assert.Equal(ReservationCreationStatus.Unavailable, creation.Status);
+        Assert.Null(creation.ReservationId);
+        Assert.Equal(ReservationCreationStatus.Unavailable,
+            (await test.ReserveAsync(new(otherStudent, listingId), clock, "retry_missing_item")).Status);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        Assert.Equal(reservationId, reservation.Id);
+        Assert.Equal(owner, reservation.UserId);
+        Assert.Equal(ReservationStatus.Canceled, reservation.Status);
+        Assert.Equal(ReservationCancellationReasons.ItemNotFound, reservation.CancellationReason);
+        Assert.Null(reservation.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Missing, await ListingStatusAsync(database, listingId));
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(InventoryAuditActions.ReservationItemMissing, audit.Action);
+        Assert.Equal(staff, audit.ActorUserId);
+        Assert.Equal(listingId, audit.ListingId);
+    }
+
+    [ReservationPostgresFact]
+    public async Task MissingReportCompetingWithPickup_CommitsOneConsistentOutcome()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var reportingStaff = await test.AddPickupStaffAsync();
+        var collectingStaff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var reservationId = await test.AddReservationAsync(student, listingId, InitialNow.AddHours(1));
+        var clock = new ControlledClock(InitialNow);
+        await using var blocker = await test.HoldRowAsync(true, student, listingId);
+
+        var results = await test.RunBlockedOperationsAsync<ReservationOperationResult>(blocker, clock, null, true,
+            (name, token) => test.ReportMissingAsync(reservationId, reportingStaff, clock, name, token),
+            (name, token) => test.PickupAsync(reservationId, collectingStaff, clock, name, token));
+
+        var winner = Assert.Single(results, result => result.Changed);
+        Assert.Contains(winner.Status, new[] { ReservationOperationStatus.Canceled, ReservationOperationStatus.Fulfilled });
+        Assert.Equal(ReservationOperationStatus.NotActive, Assert.Single(results, result => !result.Changed).Status);
+        await using var database = test.Context();
+        var reservation = await database.Reservations.SingleAsync();
+        var audit = await database.AuditEvents.SingleAsync();
+        Assert.Equal(listingId, audit.ListingId);
+        Assert.Equal(InitialNow.UtcDateTime, audit.OccurredAtUtc);
+        if (winner.Status == ReservationOperationStatus.Canceled)
+        {
+            Assert.Equal(ReservationStatus.Canceled, reservation.Status);
+            Assert.Equal(ReservationCancellationReasons.ItemNotFound, reservation.CancellationReason);
+            Assert.Null(reservation.FulfilledAtUtc);
+            Assert.Equal(ListingStatus.Missing, await ListingStatusAsync(database, listingId));
+            Assert.Equal(InventoryAuditActions.ReservationItemMissing, audit.Action);
+            Assert.Equal(reportingStaff, audit.ActorUserId);
+        }
+        else
+        {
+            Assert.Equal(ReservationStatus.Fulfilled, reservation.Status);
+            Assert.Null(reservation.CancellationReason);
+            Assert.Equal(InitialNow.UtcDateTime, reservation.FulfilledAtUtc);
+            Assert.Equal(ListingStatus.Collected, await ListingStatusAsync(database, listingId));
+            Assert.Equal(InventoryAuditActions.ReservationFulfilled, audit.Action);
+            Assert.Equal(collectingStaff, audit.ActorUserId);
+        }
+    }
+
+    [ReservationPostgresFact]
+    public async Task MissingReportAuditFailure_RollsBackCancellationReasonAndMissingStatusBeforeRetry()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        var student = await test.AddStudentAsync();
+        var staff = await test.AddPickupStaffAsync();
+        var listingId = await test.AddListingAsync(ListingStatus.Held);
+        var reservationId = await test.AddReservationAsync(student, listingId, InitialNow.AddHours(1));
+        await using (var setup = test.Context())
+        {
+            await setup.Database.ExecuteSqlRawAsync("""
+                CREATE FUNCTION reject_missing_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'Private missing-report audit fixture failure'; END;
+                $$;
+                CREATE TRIGGER reject_missing_audit BEFORE INSERT ON "AuditEvents"
+                FOR EACH ROW EXECUTE FUNCTION reject_missing_audit();
+                """);
+        }
+        var clock = new ControlledClock(InitialNow);
+
+        var failed = await test.ReportMissingAsync(reservationId, staff, clock, "missing_audit_failure");
+
+        Assert.Equal(ReservationOperationStatus.PersistenceFailed, failed.Status);
+        Assert.False(failed.Changed);
+        Assert.DoesNotContain("Private missing-report audit fixture failure", failed.Message);
+        Assert.DoesNotContain("Postgres", failed.Message, StringComparison.OrdinalIgnoreCase);
+        await using (var check = test.Context())
+        {
+            var reservation = await check.Reservations.SingleAsync();
+            Assert.Equal(ReservationStatus.Active, reservation.Status);
+            Assert.Null(reservation.CancellationReason);
+            Assert.Null(reservation.FulfilledAtUtc);
+            Assert.Equal(ListingStatus.Held, await ListingStatusAsync(check, listingId));
+            Assert.Empty(await check.AuditEvents.ToListAsync());
+            await check.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_missing_audit ON \"AuditEvents\";");
+        }
+        clock.AdvanceTo(InitialNow.AddMinutes(1));
+        var retry = await test.ReportMissingAsync(reservationId, staff, clock, "missing_after_audit_failure");
+        Assert.Equal(ReservationOperationStatus.Canceled, retry.Status);
+        await using var final = test.Context();
+        var saved = await final.Reservations.SingleAsync();
+        Assert.Equal(ReservationStatus.Canceled, saved.Status);
+        Assert.Equal(ReservationCancellationReasons.ItemNotFound, saved.CancellationReason);
+        Assert.Null(saved.FulfilledAtUtc);
+        Assert.Equal(ListingStatus.Missing, await ListingStatusAsync(final, listingId));
+        var audit = await final.AuditEvents.SingleAsync();
+        Assert.Equal(InitialNow.AddMinutes(1).UtcDateTime, audit.OccurredAtUtc);
+        Assert.Equal(InventoryAuditActions.ReservationItemMissing, audit.Action);
+        Assert.Equal(staff, audit.ActorUserId);
+    }
+
     private static object ReservationSnapshot(Reservation reservation)
         => (reservation.Id, reservation.ListingId, reservation.UserId, reservation.Status,
             reservation.CreatedAtUtc, reservation.ExpiresAtUtc, reservation.FulfilledAtUtc, reservation.CancellationReason);
@@ -1027,6 +1248,15 @@ public class ReservationConcurrencyTests
             var principal = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, staffId)], "Pickup integration test"));
             return await Service(database, clock).ConfirmPickupAsync(reservationId, principal, cancellationToken);
+        }
+
+        public async Task<ReservationOperationResult> ReportMissingAsync(int reservationId, string staffId,
+            ControlledClock clock, string name, CancellationToken cancellationToken = default)
+        {
+            await using var database = Context(name);
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, staffId)], "Missing-item integration test"));
+            return await Service(database, clock).ReportMissingAsync(reservationId, principal, cancellationToken);
         }
 
         private static ReservationService Service(ApplicationDbContext database, ControlledClock clock)

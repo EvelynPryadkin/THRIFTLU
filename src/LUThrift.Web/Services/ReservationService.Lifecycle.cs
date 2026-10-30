@@ -76,7 +76,11 @@ public sealed partial class ReservationService
                 row.CreatedAtUtc, row.ExpiresAtUtc,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc <= now ? ReservationStatus.Expired : row.Status,
                 row.Status == ReservationStatus.Active && row.ExpiresAtUtc > now,
-                row.FulfilledAtUtc))
+                row.FulfilledAtUtc,
+                // Expose only this controlled student-facing reason, never arbitrary
+                // historical notes or audit details stored elsewhere.
+                row.Status == ReservationStatus.Canceled && row.CancellationReason == ReservationCancellationReasons.ItemNotFound
+                    ? ReservationCancellationReasons.ItemNotFound : null))
             .ToListAsync(cancellationToken);
         return new(rows.Where(row => row.CanCancel).ToArray(), rows.Where(row => !row.CanCancel).ToArray());
     }
