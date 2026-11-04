@@ -151,11 +151,18 @@ The HTTP workflow test creates three reservations through protected forms, rejec
 
 The Week 6 Chrome browser walkthrough was completed on October 28; its actual observations and coverage limits are recorded in the README. Official pickup hours remain unconfirmed, and the shipped empty schedule keeps creation unavailable. The operational decisions below remain open.
 
+Week 7 verification on **November 4, 2026** passed **743 tests, 0 failed, 0 skipped**, including **40 reservation and 3 catalog PostgreSQL cases** on a dedicated disposable PostgreSQL 18.6 instance. Restore passed, the build had 0 warnings and 0 errors, the safe EF check found no pending changes, and `git diff --check` passed. All temporary reservation schemas were removed and the disposable container was stopped. No development-database data, environment configuration, application code, or migrations changed in this verification checkpoint.
+
+The staff race tests cover two staff collecting the same hold, pickup versus student cancellation, pickup waiting on either lock until the deadline has arrived or passed, pickup versus expiration before/at/after the deadline, pickup versus reporting missing, and stale pickup/missing requests after a real replacement reservation. They use the same separate-connection and committed-fixture setup described above. Assertions check the winning result, final reservation/listing states, original fulfillment time, audit actor/count, and unchanged replacement history. Seven new PostgreSQL cases close the remaining race-coverage gaps. Two new HTTP cases follow real student Reserve submissions through staff lookup to pickup or missing-item reporting, checking private history/counts, public hiding, and no writes during GETs. Existing rollback, eligibility, antiforgery, overposting, and repeat-processing tests also passed. No production fix was needed.
+
+The **Week 7 browser walkthrough remains pending**. Its README procedure covers successful collection, missing-item handling, stale forms, updated student history, responsive layout, and keyboard access using synthetic accounts and hours in an isolated local database. It was provided but not performed during this checkpoint; the earlier Week 6 browser observations do not verify the new staff pages.
+
 ## Decisions Still Needed
 
 * Confirm official weekly pickup days, opening and closing times, and breaks.
 * Confirm closure dates, holidays, and who maintains configuration changes.
 * Confirm `America/Chicago` as the campus timezone and the procedure for any hours near a daylight-saving change.
 * Decide whether overnight openings or one-off replacement hours will ever be needed.
-* Agree on pickup identity checks, staff confirmation steps, and late-arrival handling.
-* Confirm the operational polling interval, monitoring of failed cleanup passes, and how staff will handle orphan holds or items that cannot be found. The exact-deadline policy holds regardless of cleanup timing.
+* Agree on the physical identity-check procedure, staff confirmation steps, and operational late-arrival handling. The implemented rule remains strict: no fulfillment at or after the deadline and no late override.
+* Assign responsibility for monitoring expiration failures and overdue cleanup, agree on the polling interval and alert/escalation process, and define a repair procedure for inconsistent or orphan holds. The worker logs failures and retries; there is no monitoring dashboard or repair UI. The exact-deadline policy holds regardless of cleanup timing.
+* Agree on physical follow-up for items reported missing. The application cancels the current hold and keeps inventory Missing; it does not automatically relist the item or prescribe a room-search procedure.

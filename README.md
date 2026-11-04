@@ -18,7 +18,7 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 ## Status
 
-The Week 3 account and authorization foundation, Week 4 staff inventory workflow, and Week 5 public catalog are implemented on top of PostgreSQL. The home page is a landing page with a Browse items link to `/Thrift`.
+Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 7 automated verification has passed; its browser walkthrough remains pending.
 
 Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
 
@@ -37,7 +37,7 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes student reservation creation, owner cancellation, and background expiration. Staff pickup confirmation remains unfinished. Held belongs to that reservation workflow and cannot be edited or changed by the Week 4 staff actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes student reservation creation, owner cancellation, and background expiration. Week 7 adds staff lookup, pickup confirmation, and reporting a reserved item missing. Held belongs to the reservation workflow and cannot be edited or changed by the Week 4 inventory actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
@@ -74,6 +74,23 @@ Saved UTC timestamps are displayed in the configured campus timezone with its na
 The hosted expiration worker runs independently of pickup availability, using a fresh scoped service per bounded pass. `Reservations:ExpirationPollSeconds` defaults to 30 (bounded 1–300); `ExpirationBatchSize` defaults to 50 (bounded 1–200). Failed passes are logged safely and retried, and shutdown cancels pending work. The host must be running for cleanup; creation also reconciles expired holds when needed. Apply the existing reservation-index migration before launching this version. The final verification checkpoint adds no migration or production-code changes.
 
 A reservation expires immediately at `ExpiresAtUtc <= server time`, even before cleanup runs. It stops consuming the student's limit. Read-only account queries show it as Expired; catalog queries show its known, safely releasable hold as Available, including filters/counts/details. Orphan holds or newer reservation history stay protected. These GET requests never save inventory, reservation, or audit changes. An already-open page updates on refresh; actions always recheck on the server.
+
+### Staff pickups (Week 7)
+
+The Staff landing page links to `/Staff/Pickups`. The existing Staff-or-Administrator folder policy protects the page; `StaffPickupService` also verifies the account is currently active and still has a Staff or Administrator role in the database before returning student information. A stale role cookie is insufficient. Public catalog pages never show reservation owners, names, or emails.
+
+The dashboard defaults to Active reservations whose deadlines are still in the future. Staff can search by exact reservation ID or student email, including partial email text, with both filters applied together. Results show the item, student display name/email, reservation ID, statuses, and campus-time deadline. They are paginated in the database in groups of 20, ordered by deadline and then ID. Exact ID lookup can explain completed or expired records, but cannot make them collectible. Invalid searches show a validation message; all these reads leave reservations, listings, and audits unchanged.
+
+An eligible row offers two antiforgery-protected POST forms, each submitting only the reservation ID. The PageModel passes the authenticated principal to `ReservationService`, which checks current staff eligibility again. It locks the **student owner**, then the listing, rereads the hold, and uses fresh server time after lock waits and immediately before the transition. Pickup uses the existing deadline, so an unexpired hold can be collected near closing without meeting creation's full-hour requirement.
+
+| Action | Reservation | Listing | Saved information |
+| --- | --- | --- | --- |
+| Confirm pickup | Active → Fulfilled | Held → Collected | Server UTC `FulfilledAtUtc` and staff-attributed audit |
+| Report item missing | Active → Canceled | Held → Missing | Controlled student-friendly reason and staff-attributed audit |
+
+Each row transition and its audit commit in one transaction. Missing-item handling never releases the listing to Available between steps. Failed writes roll everything back. Repeated, expired, inconsistent, or superseded requests cannot change a newer hold or add another audit. The forms ignore submitted identities, statuses, reasons, and timestamps. Success redirects to the saved record; refreshing that GET cannot repeat the action.
+
+My reservations removes these completed records from the active count and keeps their titles in owned history. A pickup shows its saved fulfillment time; a missing item shows only the controlled explanation, without internal audit details. Both Collected and Missing items disappear from public results and return 404 from public details. Staff pickup procedures, official hours, and responsibility for monitoring cleanup failures still need agreement; the strict expiration deadline has no late override.
 
 ## Running locally
 
@@ -138,7 +155,7 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 
 These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
 
-The home page links to the working public catalog and item details. Staff has a landing page and working inventory dashboard, Create, and Edit pages. Admin has a minimal landing page. Students can view and cancel their own reservations. Profile editing, pickup, and administration placeholders remain future work. The folder rules will apply as those pages are implemented.
+The home page links to the working public catalog and item details. Staff has working inventory, Create, Edit, and Pickups pages. Admin has a minimal landing page. Students can view and cancel their own reservations and see completed pickup or missing-item history. Profile editing and administration tools remain future work. The folder rules will apply as those pages are implemented.
 
 ## Automated checks
 
@@ -234,7 +251,24 @@ Four regression tests were added: simultaneous duplicate submissions; cancellati
 - [x] Restore, build, full tests, PostgreSQL migration/index verification, EF model check, and whitespace check passed.
 - [x] Two-account Week 6 browser walkthrough, mobile layout, keyboard/focus, real-time expiration, replacement, and stale cancellation verified in Chrome on October 28; see the browser record below.
 
-The implemented student workflow has passed the automated checks and the October 28 Chrome browser walkthrough below. Official pickup hours are still **unconfirmed**, so the shipped empty schedule disables new reservations. Staff pickup confirmation, operational monitoring/repair procedures, and real image upload remain future work.
+The implemented student workflow has passed the automated checks and the October 28 Chrome browser walkthrough below. Official pickup hours are still **unconfirmed**, so the shipped empty schedule disables new reservations. Staff pickup handling is now implemented in Week 7; operational monitoring/repair procedures and real image upload remain future work.
+
+### Week 7 final verification — November 4, 2026
+
+`dotnet restore LUThrift.slnx` passed. `dotnet build LUThrift.slnx` passed with **0 warnings and 0 errors**. The full suite, run with both dedicated PostgreSQL connections and `dotnet test LUThrift.slnx --no-build`, passed **743 tests, 0 failed, 0 skipped**. This includes **40 reservation and 3 catalog PostgreSQL cases** on a disposable PostgreSQL **18.6** instance. The safe EF check reported no pending model changes, and `git diff --check` passed. All temporary reservation schemas were removed, and the disposable container was stopped. The development database, local secrets, and existing migrations were unchanged.
+
+This checkpoint added nine cases: seven PostgreSQL cases and two HTTP workflows. Lock-wait tests now cover both the owner and listing lock with time advancing strictly past the deadline, as well as the existing exact-deadline cases. New races pit pickup against expiration before, at, and after the deadline. Stale pickup and missing-item requests are tested after an actual replacement reservation, following either cancellation or expiration of the original. The two-staff race now checks that the audit actor is the winning staff member. HTTP tests create two students' holds through the real Reserve form, then follow staff lookup through pickup or missing-item reporting, private history/count updates, public hiding, and a stale student cancellation. Database snapshots prove public, staff, and account GETs do not write.
+
+All six required PostgreSQL scenarios ran with committed fixtures, separate connections/DbContexts, synchronized starts, and observed lock waits: two staff collecting one hold; pickup versus student cancellation; pickup waiting beyond its deadline; pickup versus expiration; pickup versus missing-item reporting; and stale staff actions after a replacement hold. Assertions check final reservation/listing states and audit counts, actors, and timestamps. Existing tests also cover revoked/inactive staff, student privacy, antiforgery, forged fields, invalid states, duplicate requests, and audit-failure rollback. No production-code fix or migration was needed.
+
+- [x] Current Staff/Administrator eligibility and private student information verified.
+- [x] Strict deadlines, correct-hold checks, server fulfillment time, and audit actor verified.
+- [x] Atomic fulfillment and missing-item transitions, rollback, and repeat safety verified.
+- [x] Student history/counts, public hiding, and read-only GETs verified.
+- [x] All six PostgreSQL race scenarios, migrations/constraint, and required automated checks passed.
+- [ ] Week 7 browser walkthrough: collection, missing item, stale forms, history, mobile layout, and keyboard access. The procedure below is provided; it was **not performed** during this checkpoint. Earlier Week 6 browser results do not verify the new staff interface.
+
+Week 7 has passed automated verification but is not fully browser-verified. Official hours and physical identity-check procedures remain unconfirmed. A named operator, alert/escalation process for failed expiration passes, and repair procedure for inconsistent or orphan holds are still needed; logging and retries do not establish who monitors them. No late-pickup override, role-management screen, or real image upload has been added.
 
 ### Checking the EF model
 
@@ -267,7 +301,7 @@ The worker recorded the original expiration, listing release, and one audit at *
 
 For cleanup, the replacement was canceled through B's normal form and all 11 disposable listings were archived through Staff actions. The seven reservation records and 39 audits were retained in the test database until teardown; historical titles remained readable even after public details returned 404. The test host, isolated Chrome instance, and disposable database container were then stopped, and the temporary browser profile, synthetic credentials, and saved form tokens were removed. The existing development database and other running application/browser instances were left alone.
 
-The October 28 restore and build passed with **0 warnings and 0 errors**. The full suite passed **514 tests, 0 failed, 0 skipped**, including **19 reservation and 3 catalog PostgreSQL checks** in separate disposable databases. The safe EF model check reported no pending changes, and `git diff --check` passed. No application-code fix was needed. These are browser checks at emulated viewport sizes, not physical-device, Safari/Firefox, or screen-reader coverage. Official pickup hours remain **unconfirmed**; staff pickup confirmation and real image upload remain future work.
+The October 28 restore and build passed with **0 warnings and 0 errors**. The full suite passed **514 tests, 0 failed, 0 skipped**, including **19 reservation and 3 catalog PostgreSQL checks** in separate disposable databases. The safe EF model check reported no pending changes, and `git diff --check` passed. No application-code fix was needed. These are browser checks at emulated viewport sizes, not physical-device, Safari/Firefox, or screen-reader coverage. At that checkpoint, staff pickup confirmation and real image upload were still future work; see Week 7 above for the current pickup implementation. Official pickup hours remain **unconfirmed**.
 
 ### Repeatable Week 6 browser walkthrough
 
@@ -281,7 +315,31 @@ Use the documented Development HTTPS setup against a separate local test databas
 6. Keep an active reservation, then restart with an empty or closed synthetic schedule. New creation must be unavailable while browsing, cancellation, and eventual expiration still work. Also check a window with less than one hour remaining. Restore only the intended local settings afterward. For stale availability, open a form as A and let B reserve the item before A submits; A must receive safe feedback.
 7. Repeat details, My reservations, cancellation messages, and navigation at about **375px, 768px, and desktop width**. Check long titles and timezone labels for overflow, readable status/deadline text, keyboard access to all controls, visible focus, and an understandable Cancel label. Confirm Student B cannot open Staff/Admin pages, and successful Staff lifecycle actions still affect the public catalog for unheld items.
 
-Record the browser/version, widths, results, and any defects before marking this walkthrough complete. Retain canceled/expired history; archive the test inventory after holds finish rather than deleting listings. Staff pickup confirmation is not part of this walkthrough because it is not implemented.
+Record the browser/version, widths, results, and any defects before marking this walkthrough complete. Retain canceled/expired history; archive eligible test inventory after holds finish rather than deleting listings. Staff pickup actions have their own Week 7 walkthrough below.
+
+### Week 7 browser walkthrough — pending
+
+Use a separate disposable local PostgreSQL database with the existing migrations applied, and the documented **Development HTTPS** launch profile. Override `ConnectionStrings__DefaultConnection` only for that local run; do not point these checks at the development database. Supply explicitly synthetic pickup intervals through process configuration, with at least a full hour remaining. Set `Reservations__WeeklyPickupIntervals__0__Day` to today's campus weekday and use `Reservations__WeeklyPickupIntervals__0__OpensAt` and `Reservations__WeeklyPickupIntervals__0__ClosesAt` for a synthetic open span. Keep the real clock and one-hour duration unchanged. These are test hours, not confirmed operating hours.
+
+1. Register two synthetic Students (A and B) and a separate operator account; choose local passwords and keep them out of Git. For an Administrator walkthrough, use the existing Development bootstrap on the operator account. For the Staff-only case, a trusted operator can assign Staff in the **disposable database only** after registration, as shown below. Sign out and back in after changing roles. Use separate browser profiles for the three accounts.
+2. As Staff, create and publish three clearly labeled items, including a long title and missing size. As A, reserve two; as B, reserve the third. Check each student's My reservations shows only their own records. Signed out and as a Student, `/Staff/Pickups` must redirect to Login or deny access without exposing student names/emails. Public Reserved cards must not identify owners.
+3. As Staff, open Pickups, search A's email, then the exact reservation ID. Check the item, student, ID, statuses, and campus deadline together before pressing **Confirm pickup**. Confirm the redirect and success message, Fulfilled/Collected statuses, and absence of action forms on the completed record. Refresh: no repeat collection. A's history must show the saved collection time, reduce the count by one, and retain the title. B's history stays unchanged. The item must disappear from all public filters and its details must return 404.
+4. On A's second active hold, use **Report item missing**. Verify Canceled/Missing, a reduced active count, and the controlled explanation in A's history. Public results and details must exclude it. Replaying the saved staff form or A's old Cancel form must not relist it or add another transition. No temporary Available state should be introduced by this action.
+5. For a stale form, open B's active pickup in the Staff browser and leave it open. Cancel as B, then reserve the released item as A. Submit the old Staff confirmation; it must fail safely. Repeat with a saved old Report missing form. A's replacement must remain Active with the same deadline and Held listing; B's old history remains Canceled. The same protection after expiration is covered by PostgreSQL tests; a manual repetition must wait for the actual saved deadline, without changing the clock or policy.
+6. At about **375px, 768px, and desktop width**, check the Staff cards/search/results/messages and both students' history. Look for overflow with long titles, emails, and timezone labels. Use Tab/Shift+Tab/Enter to reach search, clear, pagination (if enough fixtures), Confirm pickup, Report item missing, and navigation; check labels, visible focus, and that each action is clearly associated with its item/student. Confirm Bootstrap/site CSS, JavaScript, and placeholder requests succeed in Development.
+7. Record browser/version, widths, each actual result, and any defects before marking these checks complete. Cancel remaining test holds and archive eligible inventory through the app; retain reservation/audit history. Collected inventory remains terminal. Stop only this test host/browser and remove only the disposable test database when finished. Do not remove shared development data.
+
+Example Staff-only fixture provisioning, run through `psql` connected to the isolated browser database after registering the **synthetic** address `pickup-staff@example.invalid`:
+
+```sql
+INSERT INTO "AspNetUserRoles" ("UserId", "RoleId")
+SELECT u."Id", r."Id"
+FROM "AspNetUsers" u CROSS JOIN "AspNetRoles" r
+WHERE u."NormalizedEmail" = 'PICKUP-STAFF@EXAMPLE.INVALID' AND r."Name" = 'Staff'
+ON CONFLICT DO NOTHING;
+```
+
+This is local test provisioning, not a public role-assignment feature. The official physical identity-check procedure remains pending staff agreement; the walkthrough checks the displayed record without inventing an ID-document requirement.
 
 ### Manual Week 4 check
 
