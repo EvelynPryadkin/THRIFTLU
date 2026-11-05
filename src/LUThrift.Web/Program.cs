@@ -65,6 +65,9 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddScoped<RoleInitializer>();
 builder.Services.AddScoped<ListingService>();
+builder.Services.Configure<ImageStorageOptions>(builder.Configuration.GetSection(ImageStorageOptions.SectionName));
+builder.Services.AddSingleton<ListingImageProcessor>();
+builder.Services.AddScoped<ImageService>();
 builder.Services.AddScoped<CatalogService>();
 builder.Services.Configure<ReservationOptions>(builder.Configuration.GetSection(ReservationOptions.SectionName));
 builder.Services.AddSingleton(TimeProvider.System);

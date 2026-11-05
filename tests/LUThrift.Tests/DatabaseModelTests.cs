@@ -8,6 +8,65 @@ namespace LUThrift.Tests;
 public class DatabaseModelTests
 {
     [Fact]
+    public void ListingImageModel_IsOptionalPerListingAndRequiresOneUniqueRestrictiveRelationship()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=luthrift_model_test").Options;
+        using var context = new ApplicationDbContext(options);
+        var image = context.Model.FindEntityType(typeof(ListingImage));
+        Assert.NotNull(image);
+        var relation = Assert.Single(image.GetForeignKeys());
+        Assert.Equal(typeof(Listing), relation.PrincipalEntityType.ClrType);
+        Assert.Equal(nameof(ListingImage.ListingId), Assert.Single(relation.Properties).Name);
+        Assert.True(relation.IsRequired);
+        Assert.False(relation.IsRequiredDependent);
+        Assert.True(relation.IsUnique);
+        Assert.Equal(DeleteBehavior.Restrict, relation.DeleteBehavior);
+        Assert.Contains(image.GetIndexes(), index => index.IsUnique
+            && index.Properties.Count == 1 && index.Properties[0].Name == nameof(ListingImage.ListingId));
+        var key = Assert.Single(image.FindPrimaryKey()!.Properties);
+        Assert.Equal(typeof(Guid), key.ClrType);
+        Assert.Equal(Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never, key.ValueGenerated);
+        Assert.Equal(40, image.FindProperty(nameof(ListingImage.StorageFileName))!.GetMaxLength());
+        Assert.False(image.FindProperty(nameof(ListingImage.StorageFileName))!.IsNullable);
+        Assert.Equal(20, image.FindProperty(nameof(ListingImage.ContentType))!.GetMaxLength());
+        Assert.False(image.FindProperty(nameof(ListingImage.ContentType))!.IsNullable);
+        Assert.Equal("timestamp with time zone", image.FindProperty(nameof(ListingImage.CreatedAtUtc))!.GetColumnType());
+    }
+
+    [Fact]
+    public async Task ListingImageDatabase_PreventsSecondPhotoAndDeletingItsListing()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(connection).Options;
+        await using var context = new ApplicationDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+        Assert.Empty(await context.ListingImages.ToListAsync());
+        var image = new ListingImage
+        {
+            Id = Guid.NewGuid(), ListingId = 1, StorageFileName = Guid.NewGuid().ToString("N") + ".png",
+            ContentType = "image/png", Width = 1, Height = 1, ByteLength = 100, CreatedAtUtc = DateTime.UtcNow
+        };
+        context.ListingImages.Add(image);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        context.ListingImages.Add(new ListingImage
+        {
+            Id = Guid.NewGuid(), ListingId = 1, StorageFileName = Guid.NewGuid().ToString("N") + ".jpg",
+            ContentType = "image/jpeg", Width = 1, Height = 1, ByteLength = 100, CreatedAtUtc = DateTime.UtcNow
+        });
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        context.ChangeTracker.Clear();
+        var listing = await context.Listings.SingleAsync(row => row.Id == 1);
+        context.Listings.Remove(listing);
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        context.ChangeTracker.Clear();
+        Assert.Equal(image.Id, (await context.ListingImages.AsNoTracking().SingleAsync()).Id);
+        Assert.True(await context.Listings.AnyAsync(row => row.Id == 1));
+    }
+
+    [Fact]
     public void ReservationRelationships_AreRequiredAndPreventCascadeDeletion()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

@@ -11,6 +11,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Listing> Listings => Set<Listing>();
     public DbSet<Reservation> Reservations => Set<Reservation>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<ListingImage> ListingImages => Set<ListingImage>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

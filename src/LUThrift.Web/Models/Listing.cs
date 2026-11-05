@@ -12,4 +12,5 @@ public class Listing
     public ListingStatus Status { get; set; } = ListingStatus.Draft;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public ICollection<Reservation> Reservations { get; set; } = [];
+    public ListingImage? Image { get; set; }
 }

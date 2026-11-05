@@ -268,6 +268,47 @@ namespace LUThrift.Web.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("LUThrift.Web.Models.ListingImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StorageFileName")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ListingId")
+                        .IsUnique();
+
+                    b.HasIndex("StorageFileName")
+                        .IsUnique();
+
+                    b.ToTable("ListingImages", (string)null);
+                });
+
             modelBuilder.Entity("LUThrift.Web.Models.Reservation", b =>
                 {
                     b.Property<int>("Id")
@@ -470,6 +511,17 @@ namespace LUThrift.Web.Data.Migrations
                     b.Navigation("Category");
                 });
 
+            modelBuilder.Entity("LUThrift.Web.Models.ListingImage", b =>
+                {
+                    b.HasOne("LUThrift.Web.Models.Listing", "Listing")
+                        .WithOne("Image")
+                        .HasForeignKey("LUThrift.Web.Models.ListingImage", "ListingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+                });
+
             modelBuilder.Entity("LUThrift.Web.Models.Reservation", b =>
                 {
                     b.HasOne("LUThrift.Web.Models.Listing", "Listing")
@@ -552,6 +604,8 @@ namespace LUThrift.Web.Data.Migrations
 
             modelBuilder.Entity("LUThrift.Web.Models.Listing", b =>
                 {
+                    b.Navigation("Image");
+
                     b.Navigation("Reservations");
                 });
 #pragma warning restore 612, 618
