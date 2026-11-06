@@ -1,4 +1,7 @@
 using System.Data.Common;
+using System.Security.Claims;
+using LUThrift.Web.Authorization;
+using Microsoft.AspNetCore.Identity;
 using System.Text.Json;
 using LUThrift.Web.Configuration;
 using LUThrift.Web.Data;
@@ -30,7 +33,7 @@ public sealed class ImageUploadTests
         Assert.Empty(await test.Database.ListingImages.ToListAsync());
         using var upload = Image(format);
 
-        var result = await test.Service.AddOrReplaceAsync(1, upload, ActorId);
+        var result = await test.Service.AddOrReplaceAsync(1, upload, Staff());
 
         Assert.True(result.Succeeded);
         Assert.False(result.CleanupPending);
@@ -66,7 +69,7 @@ public sealed class ImageUploadTests
         var inventory = await test.InventoryAndReservationsAsync();
         using var replacement = Image(SKEncodedImageFormat.Jpeg, 11, 9);
 
-        var result = await test.Service.AddOrReplaceAsync(1, replacement, ActorId, original.Id);
+        var result = await test.Service.AddOrReplaceAsync(1, replacement, Staff(), original.Id);
 
         Assert.True(result.Succeeded);
         var updated = await test.PhotoAsync();
@@ -75,7 +78,7 @@ public sealed class ImageUploadTests
         Assert.Equal((11, 9), (updated.Width, updated.Height));
         Assert.False(File.Exists(oldFile));
         Assert.Equal(Path.Combine(test.StorageRoot, updated.StorageFileName), Assert.Single(test.Files()));
-        var removed = await test.Service.RemoveAsync(1, updated.Id, ActorId);
+        var removed = await test.Service.RemoveAsync(1, updated.Id, Staff());
         Assert.True(removed.Succeeded);
         Assert.Empty(await test.Database.ListingImages.AsNoTracking().ToListAsync());
         Assert.Empty(test.Files());
@@ -83,7 +86,7 @@ public sealed class ImageUploadTests
             (await test.AuditsAsync()).Select(row => row.Action));
         Assert.Equal(inventory, await test.InventoryAndReservationsAsync());
 
-        var repeated = await test.Service.RemoveAsync(1, updated.Id, ActorId);
+        var repeated = await test.Service.RemoveAsync(1, updated.Id, Staff());
         Assert.Equal(ImageOperationStatus.Conflict, repeated.Status);
         Assert.Equal(3, (await test.AuditsAsync()).Length);
     }
@@ -99,7 +102,7 @@ public sealed class ImageUploadTests
             .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.Status, status));
         var before = await test.InventoryAndReservationsAsync();
         var image = await test.AddAsync();
-        Assert.True((await test.Service.RemoveAsync(1, image.Id, ActorId)).Succeeded);
+        Assert.True((await test.Service.RemoveAsync(1, image.Id, Staff())).Succeeded);
         Assert.Equal(before, await test.InventoryAndReservationsAsync());
     }
 
@@ -117,9 +120,9 @@ public sealed class ImageUploadTests
         using var upload = Image();
 
         Assert.Equal(ImageOperationStatus.NotEditable,
-            (await test.Service.AddOrReplaceAsync(1, upload, ActorId, original.Id)).Status);
+            (await test.Service.AddOrReplaceAsync(1, upload, Staff(), original.Id)).Status);
         Assert.Equal(ImageOperationStatus.NotEditable,
-            (await test.Service.RemoveAsync(1, original.Id, ActorId)).Status);
+            (await test.Service.RemoveAsync(1, original.Id, Staff())).Status);
         Assert.Equal(before, await test.StateAsync());
         Assert.Equal(Path.Combine(test.StorageRoot, original.StorageFileName), Assert.Single(test.Files()));
     }
@@ -131,9 +134,9 @@ public sealed class ImageUploadTests
         var before = await test.StateAsync();
         using var upload = Image();
         Assert.Equal(ImageOperationStatus.NotFound,
-            (await test.Service.AddOrReplaceAsync(int.MaxValue, upload, ActorId)).Status);
+            (await test.Service.AddOrReplaceAsync(int.MaxValue, upload, Staff())).Status);
         Assert.Equal(ImageOperationStatus.NotFound,
-            (await test.Service.RemoveAsync(int.MaxValue, Guid.NewGuid(), ActorId)).Status);
+            (await test.Service.RemoveAsync(int.MaxValue, Guid.NewGuid(), Staff())).Status);
         Assert.Equal(before, await test.StateAsync());
         Assert.Empty(test.Files());
     }
@@ -146,12 +149,51 @@ public sealed class ImageUploadTests
     {
         await using var test = await StorageTest.CreateAsync();
         using var upload = Image();
-        Assert.Equal(ImageOperationStatus.InvalidActor,
-            (await test.Service.AddOrReplaceAsync(1, upload, actorId)).Status);
-        Assert.Equal(ImageOperationStatus.InvalidActor,
-            (await test.Service.RemoveAsync(1, Guid.NewGuid(), actorId)).Status);
+        Assert.Equal(ImageOperationStatus.AuthenticationRequired,
+            (await test.Service.AddOrReplaceAsync(1, upload, Staff(actorId))).Status);
+        Assert.Equal(ImageOperationStatus.AuthenticationRequired,
+            (await test.Service.RemoveAsync(1, Guid.NewGuid(), Staff(actorId))).Status);
         Assert.Empty(await test.AuditsAsync());
         Assert.Empty(test.Files());
+    }
+
+    [Theory]
+    [InlineData("revoked")]
+    [InlineData("inactive")]
+    [InlineData("deleted")]
+    [InlineData("student")]
+    public async Task Service_RechecksCurrentAccountInsteadOfTrustingStaffClaims(string change)
+    {
+        await using var test = await StorageTest.CreateAsync();
+        var original = await test.AddAsync();
+        var principal = Staff(); // Retains a Staff claim after the database changes.
+        if (change == "inactive")
+            await test.Database.Users.Where(row => row.Id == ActorId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.IsActive, false));
+        else if (change == "deleted")
+            await test.Database.Users.Where(row => row.Id == ActorId).ExecuteDeleteAsync();
+        else
+        {
+            await test.Database.UserRoles.Where(row => row.UserId == ActorId).ExecuteDeleteAsync();
+            if (change == "student")
+            {
+                test.Database.Roles.Add(new IdentityRole(ApplicationRoles.Student) { Id = "image-student-role" });
+                test.Database.UserRoles.Add(new IdentityUserRole<string> { UserId = ActorId, RoleId = "image-student-role" });
+                await test.Database.SaveChangesAsync();
+            }
+        }
+        var before = await test.StateAsync();
+        var files = test.Files();
+        using var upload = Image();
+        Assert.Equal(ImageOperationStatus.StaffRequired,
+            (await test.Service.AddOrReplaceAsync(1, upload, principal, original.Id)).Status);
+        Assert.Equal(0, upload.Position);
+        Assert.Equal(ImageOperationStatus.StaffRequired,
+            (await test.Service.RemoveAsync(1, original.Id, principal)).Status);
+        Assert.Equal(ImageOperationStatus.StaffRequired,
+            (await test.Service.GetForEditAsync(1, principal)).Status);
+        Assert.Equal(before, await test.StateAsync());
+        Assert.Equal(files, test.Files());
     }
 
     [Theory]
@@ -167,7 +209,7 @@ public sealed class ImageUploadTests
             ? new byte[ListingImageProcessor.MaximumUploadBytes + 1]
             : "<script>This is not a JPEG</script>"u8.ToArray());
 
-        var result = await test.Service.AddOrReplaceAsync(1, upload, ActorId, original.Id);
+        var result = await test.Service.AddOrReplaceAsync(1, upload, Staff(), original.Id);
 
         Assert.Equal(oversized ? ImageOperationStatus.TooLarge : ImageOperationStatus.InvalidImage, result.Status);
         Assert.Equal(before, await test.StateAsync());
@@ -192,8 +234,8 @@ public sealed class ImageUploadTests
         using var upload = Image(SKEncodedImageFormat.Jpeg, 13, 6);
 
         var result = operation == "remove"
-            ? await test.Service.RemoveAsync(1, original!.Id, ActorId)
-            : await test.Service.AddOrReplaceAsync(1, upload, ActorId, original?.Id);
+            ? await test.Service.RemoveAsync(1, original!.Id, Staff())
+            : await test.Service.AddOrReplaceAsync(1, upload, Staff(), original?.Id);
 
         Assert.Equal(ImageOperationStatus.PersistenceFailed, result.Status);
         Assert.Equal(before, await test.StateAsync());
@@ -217,7 +259,7 @@ public sealed class ImageUploadTests
         using var upload = Image(SKEncodedImageFormat.Jpeg, 13, 6);
         failure.Enabled = true;
 
-        var result = await test.Service.AddOrReplaceAsync(1, upload, ActorId, original.Id);
+        var result = await test.Service.AddOrReplaceAsync(1, upload, Staff(), original.Id);
 
         Assert.True(failure.Triggered);
         Assert.Equal(ImageOperationStatus.PersistenceFailed, result.Status);
@@ -273,7 +315,7 @@ public sealed class ImageUploadTests
         using var upload = Image(SKEncodedImageFormat.Jpeg, 13, 6);
 
         var canceled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            test.Service.AddOrReplaceAsync(1, upload, ActorId, original.Id, cancellation.Token));
+            test.Service.AddOrReplaceAsync(1, upload, Staff(), original.Id, cancellation.Token));
 
         Assert.True(failure.Triggered);
         Assert.Equal(cancellation.Token, canceled.CancellationToken);
@@ -299,15 +341,15 @@ public sealed class ImageUploadTests
         using var firstUpload = Image(SKEncodedImageFormat.Jpeg, 8, 4);
         using var staleUpload = Image(SKEncodedImageFormat.Png, 4, 8);
 
-        var winner = await first.AddOrReplaceAsync(1, firstUpload, ActorId, original.Id);
+        var winner = await first.AddOrReplaceAsync(1, firstUpload, Staff(), original.Id);
         Assert.True(winner.Succeeded);
         var committed = await test.StateAsync();
         var winnerFile = Assert.Single(test.Files());
         var bytes = await File.ReadAllBytesAsync(winnerFile);
         Assert.Equal(ImageOperationStatus.Conflict,
-            (await stale.AddOrReplaceAsync(1, staleUpload, ActorId, original.Id)).Status);
+            (await stale.AddOrReplaceAsync(1, staleUpload, Staff(), original.Id)).Status);
         Assert.Equal(ImageOperationStatus.Conflict,
-            (await stale.RemoveAsync(1, original.Id, ActorId)).Status);
+            (await stale.RemoveAsync(1, original.Id, Staff())).Status);
         Assert.Equal(committed, await test.StateAsync());
         Assert.Equal(winnerFile, Assert.Single(test.Files()));
         Assert.Equal(bytes, await File.ReadAllBytesAsync(winnerFile));
@@ -327,7 +369,7 @@ public sealed class ImageUploadTests
             using var upload = Image(SKEncodedImageFormat.Png, width, 5);
             ready.Signal();
             await start.Task;
-            return await test.CreateService(context).AddOrReplaceAsync(1, upload, actor, original.Id);
+            return await test.CreateService(context).AddOrReplaceAsync(1, upload, Staff(actor), original.Id);
         }
         var first = Task.Run(() => ReplaceAsync(8, "synthetic-first-editor"));
         var second = Task.Run(() => ReplaceAsync(9, "synthetic-second-editor"));
@@ -359,7 +401,7 @@ public sealed class ImageUploadTests
         Directory.CreateDirectory(oldPath);
         using var upload = Image(SKEncodedImageFormat.Jpeg);
 
-        var result = await test.Service.AddOrReplaceAsync(1, upload, ActorId, original.Id);
+        var result = await test.Service.AddOrReplaceAsync(1, upload, Staff(), original.Id);
 
         Assert.True(result.Succeeded);
         Assert.True(result.CleanupPending);
@@ -380,7 +422,7 @@ public sealed class ImageUploadTests
         var files = test.Files();
         using var upload = Image();
         Assert.Equal(ImageOperationStatus.Conflict,
-            (await test.Service.AddOrReplaceAsync(1, upload, ActorId)).Status);
+            (await test.Service.AddOrReplaceAsync(1, upload, Staff())).Status);
         Assert.Equal(before, await test.StateAsync());
         Assert.Equal(files, test.Files());
     }
@@ -416,10 +458,15 @@ public sealed class ImageUploadTests
         using var upload = Image();
 
         Assert.Equal(ImageOperationStatus.StorageUnavailable,
-            (await service.AddOrReplaceAsync(1, upload, ActorId, original.Id)).Status);
+            (await service.AddOrReplaceAsync(1, upload, Staff(), original.Id)).Status);
         Assert.Equal(before, await test.StateAsync());
         Assert.Equal(files, test.Files());
     }
+
+    private static ClaimsPrincipal Staff(string? actorId = ActorId)
+        => new(new ClaimsIdentity(actorId is null ? [] :
+            [new Claim(ClaimTypes.NameIdentifier, actorId), new Claim(ClaimTypes.Role, ApplicationRoles.Staff)],
+            actorId is null ? null : "Image test"));
 
     private static MemoryStream Image(SKEncodedImageFormat format = SKEncodedImageFormat.Png, int width = 7, int height = 5)
     {
@@ -511,6 +558,13 @@ public sealed class ImageUploadTests
             var database = new ApplicationDbContext(options);
             await database.Database.EnsureCreatedAsync();
             var student = new ApplicationUser { Id = "image-test-student", DisplayName = "Synthetic image student" };
+            var staffRole = new IdentityRole(ApplicationRoles.Staff) { Id = "image-test-staff-role", NormalizedName = "STAFF" };
+            database.Roles.Add(staffRole);
+            foreach (var staffId in new[] { ActorId, "synthetic-first-editor", "synthetic-second-editor" })
+            {
+                database.Users.Add(new ApplicationUser { Id = staffId, DisplayName = "Synthetic image editor", IsActive = true });
+                database.UserRoles.Add(new IdentityUserRole<string> { UserId = staffId, RoleId = staffRole.Id });
+            }
             database.Users.Add(student);
             database.Reservations.Add(new Reservation
             {
@@ -524,7 +578,7 @@ public sealed class ImageUploadTests
         public async Task<ListingImage> AddAsync()
         {
             using var upload = Image();
-            Assert.True((await Service.AddOrReplaceAsync(1, upload, ActorId)).Succeeded);
+            Assert.True((await Service.AddOrReplaceAsync(1, upload, Staff())).Succeeded);
             return await PhotoAsync();
         }
         public Task<ListingImage> PhotoAsync() => Database.ListingImages.AsNoTracking().SingleAsync();

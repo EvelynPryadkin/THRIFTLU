@@ -90,7 +90,15 @@ else
             <div class="col">
                 <article class="card h-100" aria-labelledby="listing-title-@listing.Id">
                     <div class="card-body">
-                        <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
+                        @if (listing.HasImage)
+                        {
+                            <img src="@Url.Page("/Thrift/Image", new { id = listing.Id })" alt="Photo of @listing.Title"
+                                 class="listing-photo listing-photo--card mb-3" loading="lazy" />
+                        }
+                        else
+                        {
+                            <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
+                        }
                         <h2 class="card-title h5 text-break" id="listing-title-@listing.Id">@listing.Title</h2>
                         <span class="badge @(listing.Status == ListingStatus.Held ? "bg-secondary" : "bg-success") mb-3">@(listing.Status == ListingStatus.Held ? "Reserved" : "Available")</span>
                         <dl class="mb-0">

@@ -3,7 +3,8 @@ namespace LUThrift.Web.Services;
 public enum ImageOperationStatus
 {
     Success,
-    InvalidActor,
+    AuthenticationRequired,
+    StaffRequired,
     InvalidImage,
     TooLarge,
     PixelLimitExceeded,
@@ -19,3 +20,6 @@ public sealed record ImageOperationResult(
 {
     public bool Succeeded => Status == ImageOperationStatus.Success;
 }
+
+// The caller owns the stream. No storage filename or filesystem path leaves the service.
+public sealed record ListingImageFile(Stream Content, string ContentType);

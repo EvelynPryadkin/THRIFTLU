@@ -10,51 +10,39 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LUThrift.Web.Pages.Staff.Inventory;
 
-public class EditModel(ListingService listingService, ILogger<EditModel> logger) : PageModel
+[ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
+[RequestSizeLimit(6 * 1024 * 1024)]
+[RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
+public class EditModel(ListingService listingService, ImageService imageService, ILogger<EditModel> logger) : PageModel
 {
-    [BindProperty]
-    public UpdateListingInput Input { get; set; } = new();
+    public UpdateListingInput Input { get; private set; } = new();
 
     public int ListingId { get; private set; }
     public bool CanEdit { get; private set; }
     public string? UnavailableMessage { get; private set; }
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    public Guid? ImageId { get; private set; }
+    public string? PhotoError { get; private set; }
+
+    [TempData]
+    public string? PhotoMessage { get; set; }
 
     public async Task<IActionResult> OnGetAsync([FromQuery] int id, CancellationToken cancellationToken)
     {
-        ListingId = id;
-        var result = await listingService.GetForEditAsync(id, cancellationToken);
-        if (result.Status == ListingResultStatus.NotFound)
-        {
-            return NotFound();
-        }
-
-        if (!result.Succeeded)
-        {
-            return NotEditable();
-        }
-
-        Input = result.Value!;
-        CanEdit = true;
+        var unavailable = await LoadCurrentListingAsync(id, copyInput: true, cancellationToken);
+        if (unavailable is not null) return unavailable;
         return await RedisplayAsync(cancellationToken);
     }
 
-    public async Task<IActionResult> OnPostAsync([FromQuery] int id, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostAsync([FromQuery] int id,
+        [FromForm(Name = nameof(Input))] UpdateListingInput input, CancellationToken cancellationToken)
     {
-        ListingId = id;
+        // Bind listing fields only for this handler. Photo forms have their own
+        // inputs and must not validate an empty UpdateListingInput.
+        Input = input;
         // Check the requested listing even when the posted fields are invalid, without overwriting those fields.
-        var current = await listingService.GetForEditAsync(id, cancellationToken);
-        if (current.Status == ListingResultStatus.NotFound)
-        {
-            return NotFound();
-        }
-
-        if (!current.Succeeded)
-        {
-            return NotEditable();
-        }
-
-        CanEdit = true;
+        var unavailable = await LoadCurrentListingAsync(id, copyInput: false, cancellationToken);
+        if (unavailable is not null) return unavailable;
         if (!ModelState.IsValid)
         {
             return await RedisplayAsync(cancellationToken);
@@ -109,6 +97,101 @@ public class EditModel(ListingService listingService, ILogger<EditModel> logger)
 
         return await RedisplayAsync(cancellationToken);
     }
+
+    public async Task<IActionResult> OnPostUploadPhotoAsync(
+        [FromQuery] int id, [FromForm] IFormFile? photo, [FromForm] Guid? expectedImageId,
+        CancellationToken cancellationToken)
+    {
+        var unavailable = await LoadCurrentListingAsync(id, copyInput: true, cancellationToken);
+        if (unavailable is not null) return unavailable;
+        if (!ModelState.IsValid)
+        {
+            PhotoError = "The photo form is invalid. Refresh this page and choose the photo again.";
+            return await RedisplayAsync(cancellationToken);
+        }
+        if (photo is null || photo.Length == 0)
+        {
+            PhotoError = "Choose a JPEG or PNG photo to upload.";
+            return await RedisplayAsync(cancellationToken);
+        }
+        if (photo.Length > ListingImageProcessor.MaximumUploadBytes)
+        {
+            PhotoError = "Choose a photo no larger than 5 MiB.";
+            return await RedisplayAsync(cancellationToken);
+        }
+
+        // Filename, content type, identities and timestamps supplied by the browser
+        // do not authorize or describe the stored image. The service decodes bytes.
+        await using var stream = photo.OpenReadStream();
+        var result = await imageService.AddOrReplaceAsync(id, stream, User, expectedImageId, cancellationToken);
+        return await PhotoOutcomeAsync(id, result, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostRemovePhotoAsync(
+        [FromQuery] int id, [FromForm] Guid? expectedImageId, CancellationToken cancellationToken)
+    {
+        var unavailable = await LoadCurrentListingAsync(id, copyInput: true, cancellationToken);
+        if (unavailable is not null) return unavailable;
+        if (!ModelState.IsValid || expectedImageId is null || expectedImageId == Guid.Empty)
+        {
+            PhotoError = "Refresh this page before removing the photo.";
+            return await RedisplayAsync(cancellationToken);
+        }
+        var result = await imageService.RemoveAsync(id, expectedImageId.Value, User, cancellationToken);
+        return await PhotoOutcomeAsync(id, result, cancellationToken);
+    }
+
+    private async Task<IActionResult> PhotoOutcomeAsync(
+        int id, ImageOperationResult result, CancellationToken cancellationToken)
+    {
+        var denied = ImageAccessResult(result);
+        if (denied is not null) return denied;
+        if (result.Succeeded)
+        {
+            PhotoMessage = result.Message + (result.CleanupPending
+                ? " An older photo could not be cleaned up; please notify the administrator." : string.Empty);
+            return RedirectToPage("./Edit", new { id });
+        }
+
+        PhotoError = result.Message;
+        if (result.Status == ImageOperationStatus.Conflict) Response.StatusCode = StatusCodes.Status409Conflict;
+        // Reload the current photo ID after a stale form or a failed save. This
+        // preserves the previous preview and keeps retry forms tied to current state.
+        var unavailable = await LoadCurrentListingAsync(id, copyInput: true, cancellationToken);
+        if (unavailable is not null) return unavailable;
+        return await RedisplayAsync(cancellationToken);
+    }
+
+    private async Task<IActionResult?> LoadCurrentListingAsync(
+        int id, bool copyInput, CancellationToken cancellationToken)
+    {
+        ListingId = id;
+        var image = await imageService.GetForEditAsync(id, User, cancellationToken);
+        var denied = ImageAccessResult(image);
+        if (denied is not null) return denied;
+        if (!image.Succeeded)
+        {
+            PhotoError = image.Message;
+            return NotEditable();
+        }
+        ImageId = image.ImageId;
+
+        var listing = await listingService.GetForEditAsync(id, cancellationToken);
+        if (listing.Status == ListingResultStatus.NotFound) return NotFound();
+        if (!listing.Succeeded) return NotEditable();
+        if (copyInput) Input = listing.Value!;
+        CanEdit = true;
+        return null;
+    }
+
+    private IActionResult? ImageAccessResult(ImageOperationResult result) => result.Status switch
+    {
+        ImageOperationStatus.AuthenticationRequired => Challenge(),
+        ImageOperationStatus.StaffRequired => Forbid(),
+        ImageOperationStatus.NotFound => NotFound(),
+        ImageOperationStatus.NotEditable => NotEditable(),
+        _ => null
+    };
 
     private PageResult NotEditable()
     {

@@ -81,7 +81,8 @@ public class CatalogService(ApplicationDbContext context, TimeProvider? timeProv
                 listing.CategoryName,
                 listing.Condition,
                 listing.Size,
-                listing.Status))
+                listing.Status,
+                listing.HasImage))
             .ToListAsync(cancellationToken);
 
         return new CatalogListingPage(items, totalCount, currentPage);
@@ -118,7 +119,8 @@ public class CatalogService(ApplicationDbContext context, TimeProvider? timeProv
                 listing.CategoryName,
                 listing.Condition,
                 listing.Size,
-                listing.Status))
+                listing.Status,
+                listing.HasImage))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -136,6 +138,7 @@ public class CatalogService(ApplicationDbContext context, TimeProvider? timeProv
                 Condition = listing.Condition,
                 Size = listing.Size,
                 CreatedAtUtc = listing.CreatedAtUtc,
+                HasImage = listing.Image != null,
                 // Display known expiration without writing during a public GET. An orphan hold or
                 // newer reservation history must not be mistaken for this expired reservation's hold.
                 Status = listing.Status == ListingStatus.Held
@@ -159,5 +162,6 @@ public class CatalogService(ApplicationDbContext context, TimeProvider? timeProv
         public string? Size { get; init; }
         public DateTime CreatedAtUtc { get; init; }
         public ListingStatus Status { get; init; }
+        public bool HasImage { get; init; }
     }
 }

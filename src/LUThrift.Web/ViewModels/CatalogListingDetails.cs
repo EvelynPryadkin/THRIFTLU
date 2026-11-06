@@ -9,4 +9,5 @@ public sealed record CatalogListingDetails(
     string CategoryName,
     string Condition,
     string? Size,
-    ListingStatus Status);
+    ListingStatus Status,
+    bool HasImage = false);

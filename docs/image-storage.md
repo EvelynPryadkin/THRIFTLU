@@ -1,6 +1,6 @@
-# Listing photo storage — Week 8, checkpoint 1
+# Listing photos — Week 8
 
-Each listing can have zero or one photo. This checkpoint adds storage, validation, metadata, and service operations only. There are no upload forms or image-serving routes yet; existing pages keep the placeholder. The database migration is `AddListingImages`.
+Each listing can have zero or one photo. Checkpoint 1 added storage, validation, metadata, and service operations; checkpoint 2 connects them to staff editing and public catalog/details pages. The existing database migration is `AddListingImages`; checkpoint 2 needs no additional migration.
 
 ## Local configuration on macOS
 
@@ -35,9 +35,9 @@ The added dependency is [SkiaSharp 4.154.0](https://www.nuget.org/packages/SkiaS
 
 ## Service and database behavior
 
-Future staff-authorized PageModels call `ImageService`; the authenticated actor ID must come from server authentication, matching `ListingService`. This API does not itself create an HTTP route or grant permission. UI authorization and antiforgery integration belong to Prompt 2.
+Staff-authorized PageModels pass their authenticated `User` to `ImageService`. The service derives the actor ID from that principal and verifies the account exists, is active, and currently has Staff or Administrator membership in the database. Cookie role claims alone cannot authorize changes. Checks run before processing uploads, after acquiring the listing lock, and around saving, so a revoked or inactive account cannot rely on an old form. The service does not accept an actor ID or role from form data.
 
-`AddOrReplaceAsync(listingId, upload, actorUserId, expectedImageId)` adds when `expectedImageId` is null and no photo exists. To replace, supply the image ID read with the edit page. `RemoveAsync(listingId, expectedImageId, actorUserId)` requires that same current ID. Each successful replacement has a fresh server-generated GUID and filename. A stale ID, including a repeated removal, returns Conflict and asks for a refresh. Neither client filenames nor path strings are accepted by these methods.
+`AddOrReplaceAsync(listingId, upload, user, expectedImageId)` adds when `expectedImageId` is null and no photo exists. To replace, supply the image ID read with the edit page. `RemoveAsync(listingId, expectedImageId, user)` requires that same current ID. Each successful replacement has a fresh server-generated GUID and filename. A stale ID, including a repeated removal, returns Conflict and asks for a refresh. Neither client filenames nor path strings are accepted by these methods. `GetForEditAsync` checks current staff eligibility and returns only the current image ID; it does not require configured file storage to permit ordinary listing editing.
 
 The metadata row records its ID, listing ID, generated storage filename, detected content type, re-encoded byte length, dimensions, and server UTC creation time. A unique listing relationship enforces at most one photo; restrictive deletion prevents a listing deletion from silently leaving its image file behind. Existing reservation relationships and rules are unchanged.
 
@@ -46,6 +46,18 @@ Images can change only on Draft, Available, or Missing listings, following exist
 A replacement is decoded and written to a new immutable private file before opening the database transaction. In that transaction the service checks current state, swaps metadata, and saves a staff-attributed `ListingImageAdded`, `ListingImageReplaced`, or `ListingImageRemoved` audit. It owns the transaction and rejects calls inside an existing one. The old file is deleted only after a confirmed commit. A rejected operation or known rollback removes only its new candidate file and leaves the old metadata/file intact. Failed pending entities are detached so a later `SaveChanges` cannot retry them accidentally.
 
 The filesystem and database do not share a distributed transaction. If commit acknowledgement is lost, the service preserves both files and returns an unconfirmed result; refresh before retrying. A crash or failed file cleanup can leave an unreferenced file. Cleanup failure after a successful commit is logged safely and returned as `CleanupPending`; it does not undo a saved photo. Cleanup failure after a rejected operation is logged while retaining that operation's original failure result. Cleanup uses only generated filename shapes and ignores request cancellation after commit. Operator reconciliation must compare files with committed metadata while image writers are stopped, retain all referenced files, and investigate uncertain operations before deleting anything. Automatic orphan cleanup is outside this checkpoint.
+
+## Staff editing and image delivery
+
+Create the listing first, then open `/Staff/Inventory/Edit?id=LISTING_ID`. The photo section has an uploaded preview or the existing placeholder. Upload/replace and remove use separate antiforgery-protected POST forms under the existing Staff folder policy. Only the listing-information handler binds `UpdateListingInput`; photo handlers bind the uploaded file and expected image ID. This keeps missing listing fields from invalidating photo-only submissions and prevents submitted listing/status/actor fields from changing inventory.
+
+Success redirects back to Edit with a confirmation. Validation errors reload current metadata, categories, and preview; stale forms return HTTP 409 with a refresh message. The page caps requests and multipart bodies at 6 MiB to bound parsing overhead, while the service's actual image-byte limit remains 5 MiB. The browser's `accept` hint is a convenience; decoded content remains authoritative. There is no upload field on the Create page in this checkpoint.
+
+Catalog summaries/details project only `HasImage` in addition to their existing display fields. Uploaded images use `/Thrift/Image/{listingId}` with responsive contained sizing and encoded alternative text derived from the title. Listings without metadata keep the local SVG placeholder. Storage filenames and filesystem paths never appear in these URLs or view models.
+
+The image endpoint calls `ImageService.OpenReadAsync` on every request. Anonymous visitors and Students may read photos only for Available or Held listings, matching public catalog/details visibility. Current active Staff/Administrators may also preview Draft or Missing listings, following edit eligibility. Collected and Archived photos remain inaccessible to everyone through this endpoint. Unknown listings, absent photos, missing files, invalid storage configuration, and unauthorized private requests return 404 without exposing filesystem details. The service rechecks visibility/current role membership after opening the file and never writes during a read.
+
+Image responses use `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`, including endpoint 404s. They supply no ETag, Last-Modified, or download filename. Publishing/removing a listing therefore changes access at the same image URL on the next request; old conditional-cache headers cannot bypass the visibility check. A file that is missing despite existing metadata is an operational storage problem and returns 404, rather than serving an unrelated file.
 
 ## Focused verification
 
@@ -56,8 +68,17 @@ dotnet test LUThrift.slnx --filter 'FullyQualifiedName~ImageUploadTests|FullyQua
 git diff --check
 ```
 
-Tests use generated synthetic image bytes, SQLite, and isolated temporary directories. They do not read user secrets or use the development database. The full suite, browser/UI checks, and deployment-specific storage checks are reserved for later prompts.
+Tests use generated synthetic image bytes, SQLite, and isolated temporary directories. They do not read user secrets or use the development database. The full suite and deployment-specific storage checks are reserved for later prompts. HTTP tests exercise the UI handlers; browser layout/accessibility checks have not been performed.
 
-Checkpoint verification on November 5, 2026: dependency restore succeeded; the solution build finished with **0 warnings and 0 errors**; the focused command above passed **64 tests, 0 failed, 0 skipped**. Coverage includes valid/corrupt/spoofed content, byte and pixel limits, all eight orientations, metadata removal, optional/unique metadata, add/replace/remove, stale and simultaneous replacements on separate SQLite connections, audit-failure rollback, cancellation before commit, uncertain commit acknowledgement, and failed cleanup after success. Listing and reservation snapshots remain unchanged by photo operations.
+Checkpoint 1 verification on November 5, 2026: dependency restore succeeded; the solution build finished with **0 warnings and 0 errors**; the focused command above passed **64 tests, 0 failed, 0 skipped** at that checkpoint. Coverage includes valid/corrupt/spoofed content, byte and pixel limits, all eight orientations, metadata removal, optional/unique metadata, add/replace/remove, stale and simultaneous replacements on separate SQLite connections, audit-failure rollback, cancellation before commit, uncertain commit acknowledgement, and failed cleanup after success. Listing and reservation snapshots remain unchanged by photo operations.
 
 The safe placeholder-connection EF check reported no pending model changes. PostgreSQL SQL was generated and inspected: it creates only the new table, restrictive foreign key, and unique indexes. This migration was **not applied to PostgreSQL** during this checkpoint, and image concurrency was exercised on SQLite rather than PostgreSQL. `git diff --check` passed. Native decoding was exercised on macOS; Linux and Windows execution remain unverified. No browser automation or full-suite run was performed.
+
+Checkpoint 2 verification: the final build passed with **0 warnings and 0 errors**. The image HTTP/storage, staff listing form, catalog service, and public catalog page run passed **96 tests**; a separate public-details and expired-hold catalog run passed **28 tests**. Both runs had **0 failures and 0 skips**. The new coverage checks Staff/Administrator upload/replace/removal, anonymous/Student denial, current database eligibility despite stale cookies, missing antiforgery tokens, forged fields, invalid uploads, stale forms, read-only image GETs, every public/private status, missing files, safe response headers, and visibility changes at an unchanged URL. The review fixed photo-only forms incorrectly validating empty listing fields; the existing listing form tests still pass.
+
+```sh
+dotnet test LUThrift.slnx --no-restore --filter 'FullyQualifiedName~ListingImageHttpTests|FullyQualifiedName~ImageUploadTests|FullyQualifiedName~StaffListingFormTests|FullyQualifiedName~CatalogServiceTests|FullyQualifiedName~PublicCatalogPageTests'
+dotnet test LUThrift.slnx --no-build --filter 'FullyQualifiedName~PublicItemDetailsTests|FullyQualifiedName~CatalogExpirationTests'
+```
+
+No schema or dependency change was needed for checkpoint 2. The full suite remains reserved for Prompt 5. PostgreSQL runtime checks and manual browser layout/keyboard checks remain unperformed; no browser automation was used.
