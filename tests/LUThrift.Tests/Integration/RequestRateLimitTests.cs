@@ -198,7 +198,7 @@ public sealed class RequestRateLimitTests
         var token = await TokenAsync(client);
         using (var allowed = await PostAsync(client, Login, token)) Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
         using (var rejected = await PostAsync(client, Login, token)) await AssertRejectedAsync(rejected);
-        foreach (var path in new[] { "/", "/Thrift", "/Thrift/Details/1" })
+        foreach (var path in new[] { "/", "/Thrift", "/Thrift/Details/1", "/health/live", "/health/ready" })
         {
             using var response = await client.GetAsync(path);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -210,8 +210,8 @@ public sealed class RequestRateLimitTests
         using var asset = await client.GetAsync(css);
         Assert.Equal(HttpStatusCode.OK, asset.StatusCode);
         Assert.Null(test.Factory.Services.GetRequiredService<IOptions<RateLimiterOptions>>().Value.GlobalLimiter);
-        // There is no production health route yet; unselected routes retain their
-        // normal response rather than accidentally acquiring a global limiter.
+        // The two explicit health routes work above; the unmatched parent path
+        // retains its normal response rather than acquiring a global limiter.
         using var unmatched = await client.GetAsync("/health");
         Assert.Equal(HttpStatusCode.NotFound, unmatched.StatusCode);
     }

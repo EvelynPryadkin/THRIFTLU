@@ -3,12 +3,14 @@ using LUThrift.Web.Configuration;
 using LUThrift.Web.Data;
 using LUThrift.Web.Jobs;
 using LUThrift.Web.Models;
+using LUThrift.Web.Operations;
 using LUThrift.Web.Security;
 using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddOperationalSafeguards();
 
 builder.Services.AddRazorPages(options =>
 {
@@ -28,7 +30,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString).EnableSensitiveDataLogging(false).EnableDetailedErrors(false));
 
 builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
     {
@@ -89,15 +91,22 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider.GetRequiredService<RoleInitializer>().InitializeAsync();
 }
 
+app.UseSafeRequestLogging();
 app.UseRequestProtectionHeaders();
+
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    ExceptionHandlingPath = "/Error",
+    SuppressDiagnosticsCallback = _ => true
+});
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
+app.UseStatusCodePagesWithReExecute("/Status/{0}");
 
 app.UseRouting();
 
@@ -105,6 +114,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
+app.MapOperationalHealthChecks();
 app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();

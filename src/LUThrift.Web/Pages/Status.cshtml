@@ -1,0 +1,23 @@
+@page "/Status/{statusCode:int}"
+@model StatusModel
+@{
+    Layout = "_ErrorLayout";
+    ViewData["Title"] = Model.ResponseStatusCode == 404 ? "Page not found" : "Request could not be completed";
+}
+
+@if (Model.ResponseStatusCode == 404)
+{
+    <h1>Page not found</h1>
+    <p>The page or item you're looking for isn't available. Browse the catalog to see what's available now.</p>
+}
+else
+{
+    <h1>Request could not be completed</h1>
+    <p>Please return to the page you were using and try again. If the problem continues, share the request reference with the LU Thrift team.</p>
+}
+<p><strong>Status:</strong> @Model.ResponseStatusCode</p>
+<p><strong>Request reference:</strong> <code class="text-break">@Model.RequestId</code></p>
+<nav aria-label="Status page navigation" class="d-flex flex-wrap gap-2">
+    <a class="btn btn-primary" asp-page="/Thrift/Index">Browse items</a>
+    <a class="btn btn-outline-secondary" asp-page="/Index">Go to home</a>
+</nav>

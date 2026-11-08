@@ -31,7 +31,7 @@ A rejected request receives **HTTP 429**, a numeric `Retry-After` header in seco
 
 Policies are attached to Razor Page endpoints through application-model conventions, not attributes on individual handler methods. This covers aliases such as `/Staff/Pickups/Index`. Each policy allows GET and HEAD without a limiter. The image policy checks the same handler selection as Razor Pages (route value, otherwise the first query value, ignoring case); ordinary listing edits and photo removal keep their existing behavior. Extra handler query values or form fields cannot change which upload budget applies.
 
-There is no global limiter. Browsing, image GETs, static files, and unselected endpoints keep their normal behavior. The application currently has no health-check route; this change does not add one.
+There is no global limiter. Browsing, image GETs, static files, and unselected endpoints keep their normal behavior. The later operational-safeguards checkpoint adds `/health/live` and `/health/ready`; both remain outside these POST policies.
 
 ## Cookies and response headers
 
