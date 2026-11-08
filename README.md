@@ -397,5 +397,6 @@ Week 5's automated and browser acceptance checks are complete within the scope r
 - [Requirements](docs/requirements.md)
 - [Reservation rules](docs/reservation-rules.md)
 - [Development log](docs/development-log.md)
+- [Request protection and rate-limit configuration](docs/request-protection.md)
 
 Repository name: THRIFTLU.

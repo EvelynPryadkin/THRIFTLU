@@ -3,6 +3,7 @@ using LUThrift.Web.Configuration;
 using LUThrift.Web.Data;
 using LUThrift.Web.Jobs;
 using LUThrift.Web.Models;
+using LUThrift.Web.Security;
 using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Account");
     options.Conventions.AllowAnonymousToFolder("/Thrift");
     options.Conventions.AllowAnonymousToPage("/Index");
+    RequestProtection.ConfigurePages(options);
 });
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -53,6 +55,8 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.AccessDeniedPath = "/Identity/Account/AccessDenied";
 });
 
+builder.Services.AddRequestProtection(builder.Configuration, builder.Environment);
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(Policies.StaffOrAdministrator, policy =>
@@ -85,6 +89,8 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider.GetRequiredService<RoleInitializer>().InitializeAsync();
 }
 
+app.UseRequestProtectionHeaders();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -97,6 +103,7 @@ app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapStaticAssets();
 app.MapRazorPages()
