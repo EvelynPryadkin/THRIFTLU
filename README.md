@@ -18,7 +18,7 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 ## Status
 
-Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 7 automated verification has passed; its browser walkthrough remains pending.
+Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 7 automated verification and the November 11 Chrome browser walkthrough have passed. Week 8 adds listing photos; its [browser verification record](docs/week8-browser-verification.md) includes one unresolved oversized-upload feedback issue.
 
 Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
 
@@ -37,7 +37,7 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Real image upload is not implemented; inventory and catalog pages use a local SVG placeholder until a later checkpoint. Week 6 includes student reservation creation, owner cancellation, and background expiration. Week 7 adds staff lookup, pickup confirmation, and reporting a reserved item missing. Held belongs to the reservation workflow and cannot be edited or changed by the Week 4 inventory actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Week 8 supports one optional local JPEG/PNG photo per listing, managed from Staff Edit and displayed in public catalog cards and details. See [photo storage setup](docs/image-storage.md). Missing photos use the SVG placeholder; the staff inventory table still uses its placeholder even when an uploaded photo exists. A file just over the 5 MiB upload limit receives clear feedback, but a 7 MiB file exceeding the 6 MiB request cap currently receives a generic HTTP 400 page; the previous photo remains intact in both cases. Week 6 includes student reservation creation, owner cancellation, and background expiration. Week 7 adds staff lookup, pickup confirmation, and reporting a reserved item missing. Held belongs to the reservation workflow and cannot be edited or changed by the Week 4 inventory actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
@@ -266,9 +266,9 @@ All six required PostgreSQL scenarios ran with committed fixtures, separate conn
 - [x] Atomic fulfillment and missing-item transitions, rollback, and repeat safety verified.
 - [x] Student history/counts, public hiding, and read-only GETs verified.
 - [x] All six PostgreSQL race scenarios, migrations/constraint, and required automated checks passed.
-- [ ] Week 7 browser walkthrough: collection, missing item, stale forms, history, mobile layout, and keyboard access. The procedure below is provided; it was **not performed** during this checkpoint. Earlier Week 6 browser results do not verify the new staff interface.
+- [x] Week 7 browser walkthrough: completed on November 11 in isolated Chrome at 375, 768, and 1440px. Collection, missing items, stale forms after cancellation/replacement, history, search/pagination, current-account access, and keyboard checks passed. See the [actual results and limits](docs/week8-browser-verification.md); the expiration-based replacement variant was not repeated in this browser run.
 
-Week 7 has passed automated verification but is not fully browser-verified. Official hours and physical identity-check procedures remain unconfirmed. A named operator, alert/escalation process for failed expiration passes, and repair procedure for inconsistent or orphan holds are still needed; logging and retries do not establish who monitors them. No late-pickup override, role-management screen, or real image upload has been added.
+The November 4 automated results above are supplemented by the November 11 browser walkthrough. Official hours and physical identity-check procedures remain unconfirmed. A named operator, alert/escalation process for failed expiration passes, and repair procedure for inconsistent or orphan holds are still needed; logging and retries do not establish who monitors them. No late-pickup override or role-management screen has been added. Listing photos are now implemented and covered by the Week 8 record.
 
 ### Checking the EF model
 
@@ -317,7 +317,9 @@ Use the documented Development HTTPS setup against a separate local test databas
 
 Record the browser/version, widths, results, and any defects before marking this walkthrough complete. Retain canceled/expired history; archive eligible test inventory after holds finish rather than deleting listings. Staff pickup actions have their own Week 7 walkthrough below.
 
-### Week 7 browser walkthrough — pending
+### Week 7 browser walkthrough
+
+The following procedure was completed in the November 11 walkthrough, using cancellation for the replacement-hold case. Results, screenshots inspected, and unperformed variants are recorded in [Week 8 photos and Week 7 pickup browser verification](docs/week8-browser-verification.md).
 
 Use a separate disposable local PostgreSQL database with the existing migrations applied, and the documented **Development HTTPS** launch profile. Override `ConnectionStrings__DefaultConnection` only for that local run; do not point these checks at the development database. Supply explicitly synthetic pickup intervals through process configuration, with at least a full hour remaining. Set `Reservations__WeeklyPickupIntervals__0__Day` to today's campus weekday and use `Reservations__WeeklyPickupIntervals__0__OpensAt` and `Reservations__WeeklyPickupIntervals__0__ClosesAt` for a synthetic open span. Keep the real clock and one-hour duration unchanged. These are test hours, not confirmed operating hours.
 
@@ -399,5 +401,6 @@ Week 5's automated and browser acceptance checks are complete within the scope r
 - [Development log](docs/development-log.md)
 - [Request protection and rate-limit configuration](docs/request-protection.md)
 - [Safe errors, logging, and health checks](docs/operational-safeguards.md)
+- [Photo and staff pickup browser verification](docs/week8-browser-verification.md)
 
 Repository name: THRIFTLU.
