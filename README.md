@@ -18,7 +18,7 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 ## Status
 
-Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 7 automated verification and the November 11 Chrome browser walkthrough have passed. Week 8 adds listing photos; its [browser verification record](docs/week8-browser-verification.md) includes one unresolved oversized-upload feedback issue.
+Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 8 adds listing photos, request protection, safe error responses, and health checks. The November 12 full suite passed all 883 tests, including both optional PostgreSQL suites. The [November 9/11 browser record](docs/week8-browser-verification.md) remains separate from the [final automated verification](#week-8-final-verification); its oversized-upload feedback defect has been fixed and checked through HTTP tests and a disposable Development host.
 
 Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
 
@@ -37,11 +37,11 @@ The lifecycle actions are:
 
 Each action uses an antiforgery-protected POST. The service checks the current database status, even if someone changes submitted fields or sends a request directly. The actor ID comes from the signed-in user. Creating, editing, and changing a listing's status each record an audit event; the listing change and audit are saved together in a transaction. Staff archive records instead of deleting them. Audit history prevents deletion of its listing and keeps the actor's historical ID independently of the current account.
 
-Week 8 supports one optional local JPEG/PNG photo per listing, managed from Staff Edit and displayed in public catalog cards and details. See [photo storage setup](docs/image-storage.md). Missing photos use the SVG placeholder; the staff inventory table still uses its placeholder even when an uploaded photo exists. A file just over the 5 MiB upload limit receives clear feedback, but a 7 MiB file exceeding the 6 MiB request cap currently receives a generic HTTP 400 page; the previous photo remains intact in both cases. Week 6 includes student reservation creation, owner cancellation, and background expiration. Week 7 adds staff lookup, pickup confirmation, and reporting a reserved item missing. Held belongs to the reservation workflow and cannot be edited or changed by the Week 4 inventory actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
+Week 8 supports one optional local JPEG/PNG photo per listing, managed from Staff Edit and displayed in public catalog cards and details. See [photo storage setup](docs/image-storage.md). Missing photos use the SVG placeholder; the staff inventory table still uses its placeholder even when an uploaded photo exists. Rejected uploads preserve the previous photo, and requests above the multipart/request cap now receive photo-size and refresh guidance. Week 6 includes student reservation creation, owner cancellation, and background expiration. Week 7 adds staff lookup, pickup confirmation, and reporting a reserved item missing. Held belongs to the reservation workflow and cannot be edited or changed by the Week 4 inventory actions. Collected and Archived are terminal for the staff workflow. There is no audit-history screen or staff-role management screen yet. Pickup hours, room procedures, campus sign-in, hosting, and maintenance are **To Be Confirmed**.
 
 ### Public catalog
 
-Signed-out visitors and signed-in users can browse `/Thrift` and open `/Thrift/Details/{id}`. Cards show the title, category, condition, optional size, availability, and placeholder image. Details also show the description. Missing sizes say **Not specified**, and listing text uses Razor's normal HTML encoding. Details show Held as **Reserved**, without identifying who reserved it. Unknown IDs and Draft, Missing, Collected, or Archived details return HTTP 404.
+Signed-out visitors and signed-in users can browse `/Thrift` and open `/Thrift/Details/{id}`. Cards show the title, category, condition, optional size, availability, and uploaded photo or placeholder. Details also show the description. Missing sizes say **Not specified**, and listing text uses Razor's normal HTML encoding. Details show Held as **Reserved**, without identifying who reserved it. Unknown IDs and Draft, Missing, Collected, or Archived details return HTTP 404.
 
 The GET filter form combines case-insensitive title substring search, category, size, and availability. **Available** is the default; **Reserved** means Held; **All catalog items** means Available plus Held only. Categories come from the database, and size choices come from publicly visible listings. Search text is trimmed and treats `%`, `_`, and `!` literally. PostgreSQL uses `ILIKE`; SQLite verification alone is not treated as proof of PostgreSQL search behavior.
 
@@ -92,6 +92,43 @@ Each row transition and its audit commit in one transaction. Missing-item handli
 
 My reservations removes these completed records from the active count and keeps their titles in owned history. A pickup shows its saved fulfillment time; a missing item shows only the controlled explanation, without internal audit details. Both Collected and Missing items disappear from public results and return 404 from public details. Staff pickup procedures, official hours, and responsibility for monitoring cleanup failures still need agreement; the strict expiration deadline has no late override.
 
+### Photos and operational safeguards (Week 8)
+
+Photo uploads accept decoded **JPEG or PNG**, up to **5 MiB (5,242,880 bytes)**, **20,000,000 decoded pixels**, and **8192 pixels per side**. SkiaSharp 4.154.0 (MIT) normalizes orientation and re-encodes the pixels without uploaded metadata. The Edit page has a separate 6 MiB request/multipart cap. Staff photo operations recheck current database permissions and listing editability, use server-generated filenames, and reject stale replacements. They retain the previous photo on a failed replacement. Image URLs recheck visibility on every request and use `no-store`; collected/archived photos return 404, including for staff.
+
+Configure an application-owned directory outside the repository and `wwwroot`. On macOS:
+
+```sh
+mkdir -p "$HOME/Library/Application Support/LUThrift/listing-images"
+chmod 700 "$HOME/Library/Application Support/LUThrift/listing-images"
+dotnet user-secrets set "ImageStorage:RootPath" \
+  "$HOME/Library/Application Support/LUThrift/listing-images" \
+  --project src/LUThrift.Web
+```
+
+Missing storage configuration disables photo writes while browsing still works. Use persistent storage across deployments/restarts, including a mounted persistent volume for containers; do not keep production photos in a disposable container layer. Back up the directory and database together. Multiple app instances must share the same files. File writes and database commits are coordinated but are not one distributed transaction: a crash or uncertain commit can leave an unreferenced file, and cleanup failures are logged. Operator reconciliation must preserve referenced files and investigate uncertain operations with writers stopped. See [storage behavior and limits](docs/image-storage.md); automatic orphan cleanup and its operational owner remain unconfirmed.
+
+Built-in POST rate limits have independent fixed windows and no queue:
+
+| Group | Covered actions | Default |
+| --- | --- | --- |
+| Login | Sign in | 10 per 60 seconds |
+| Registration | Register | 5 per 600 seconds |
+| Reservations | Reserve and Cancel, shared | 20 per 60 seconds |
+| Pickups | Confirm pickup and Report missing, shared | 30 per 60 seconds |
+| ImageUploads | Upload/replace photo | 10 per 60 seconds |
+
+Configure `RequestProtection:{Group}:PermitLimit` and `WindowSeconds`, then restart. The key is the authenticated user ID, otherwise the connection IP; arbitrary forwarded-IP headers are not trusted. Rejections return **429** with `Retry-After` and safe retry guidance. Browsing, image GETs, static assets, and health probes are unaffected. Budgets are in memory per instance and reset on restart. See [request protection](docs/request-protection.md) for bounds and reverse-proxy considerations. Production Identity cookies are Secure, HttpOnly, and SameSite=Lax; Development preserves the local HTTP and HTTPS profiles. Content-type, referrer, and framing headers also apply to errors.
+
+Error pages preserve HTTP status codes, offer navigation and a request reference, and do not reveal exception details. Application request logs keep correlation IDs, status, and duration without raw URLs/search terms, credentials, cookies, tokens, student emails, uploaded content, or connection strings. Audit history and expiration-failure reporting remain intact.
+
+| Health endpoint | Meaning | Response |
+| --- | --- | --- |
+| `/health/live` | Process answers HTTP | `200 Healthy` |
+| `/health/ready` | Database connectivity, with a five-second timeout | `200 Healthy` or `503 Unhealthy` |
+
+Both probes are anonymous, minimal, and `no-store`. Readiness does **not** prove migrations are applied, photo storage is healthy, or reservation cleanup is succeeding. The startup role initializer still needs a database connection before the app can serve these probes. See [safe errors, logging, and local checks](docs/operational-safeguards.md). Official pickup hours, physical identity-check procedures, and cleanup-monitoring ownership remain unconfirmed.
+
 ## Running locally
 
 You'll need the .NET 10 SDK and Docker. On a fresh checkout, copy .env.example to .env and choose a local database password. Set the same password in the web project's user secrets, replacing YOUR_LOCAL_PASSWORD below:
@@ -102,7 +139,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the migrations (including `AddInventoryAuditEvents` and `EnforceSingleActiveReservationPerListing`), and run the app:
+Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, and `AddListingImages`), and run the app:
 
 ```sh
 docker compose up -d --wait
@@ -269,6 +306,27 @@ All six required PostgreSQL scenarios ran with committed fixtures, separate conn
 - [x] Week 7 browser walkthrough: completed on November 11 in isolated Chrome at 375, 768, and 1440px. Collection, missing items, stale forms after cancellation/replacement, history, search/pagination, current-account access, and keyboard checks passed. See the [actual results and limits](docs/week8-browser-verification.md); the expiration-based replacement variant was not repeated in this browser run.
 
 The November 4 automated results above are supplemented by the November 11 browser walkthrough. Official hours and physical identity-check procedures remain unconfirmed. A named operator, alert/escalation process for failed expiration passes, and repair procedure for inconsistent or orphan holds are still needed; logging and retries do not establish who monitors them. No late-pickup override or role-management screen has been added. Listing photos are now implemented and covered by the Week 8 record.
+
+### Week 8 final verification
+
+On **November 12, 2026**, the review fixed the above-cap photo-upload feedback found in the November 9/11 walkthrough. The status page now recognizes rejected photo POSTs and provides JPEG/PNG, 5 MiB, refresh, and return-to-listing guidance without rereading the body or changing limits, antiforgery, authorization, rate policies, or reservation behavior. Other errors retain their normal messages.
+
+| Check actually run | Result |
+| --- | --- |
+| `dotnet build LUThrift.slnx` (including restore), then `dotnet build LUThrift.slnx --no-restore` after a test assertion correction | Both passed; **0 warnings, 0 errors** |
+| Focused upload/error/image-migration run | Initially **40 passed, 1 failed, 0 skipped**: the new restrictive-delete test expected the wrong SQLSTATE. Correcting the assertion to PostgreSQL's `23001` required no migration change; all four migration cases passed on rerun. |
+| Full `dotnet test LUThrift.slnx --no-build` run, executed **once** with both guarded PostgreSQL connections | **883 passed, 0 failed, 0 skipped**; **44 reservation/image-migration and 3 catalog PostgreSQL cases** included |
+| Actual `AddListingImages` PostgreSQL migration | Passed: upgrade preserves committed inventory/reservation/audit data; column definitions, both unique indexes, restrictive deletion, orphan rejection, optional photos, and repeated migration checked |
+| `dotnet tool restore` and the documented safe EF pending-model-change command below | Passed; **no changes since the last migration** |
+| `git diff --check` | Passed |
+
+The test server was a fresh loopback-only, tmpfs PostgreSQL **18.6** container using `luthrift_reservation_test` and `luthrift_catalog_test`. Each reservation/migration case owned its random schema; competing requests used the existing separate-connection test infrastructure. No development database, user secrets, environment configuration, reservation rules, or existing migrations were changed. Ten cases were added: six HTTP rejection/isolation cases and four PostgreSQL image-migration cases. Existing image codec, rollback, permission, rate-limit, cookie/header, safe-error, readiness-failure, and reservation/pickup tests ran in the full suite.
+
+A separate Development Kestrel host on HTTPS port 7143 used `luthrift_upload_test` in that disposable container, synthetic Staff accounts, and temporary image storage. A valid PNG was saved. Then 7 MiB uploads with Content-Length and chunked transfer each returned **400 with the new guidance**, while stored photo hashes and full listing/reservation/image/audit snapshots remained unchanged. These were HTTP probes, **not a fresh browser walkthrough**; certificate verification was bypassed only for this isolated localhost probe. Initial temporary-client issues (newline/message assumptions, early response handling, and cookie transfer) were corrected before these successful observations.
+
+All reservation/migration test schemas were removed. The temporary host and PostgreSQL container were stopped, and probe cookies, payloads, scripts, and photo files were removed. Only non-secret test results were retained locally.
+
+The [November 9/11 browser results](docs/week8-browser-verification.md) remain the recorded layout/keyboard/pickup evidence. The user confirmed **no additional browser checks** on November 12. A fresh browser check of the new above-cap error page remains pending, as do physical devices, other browsers, and screen readers. Native image processing ran on macOS; Linux/Windows runtime checks, deployment storage/backup restoration, multi-instance/proxy rate limits, and PostgreSQL-specific competing photo updates remain unverified. The automated image replacement race tests use SQLite; PostgreSQL migration checks do not substitute for that race coverage.
 
 ### Checking the EF model
 

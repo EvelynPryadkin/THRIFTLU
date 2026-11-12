@@ -261,6 +261,67 @@ public sealed class ListingImageHttpTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UploadBeyondMultipartLimit_ShowsSizeGuidanceAndPreservesSavedPhoto(bool unknownContentLength)
+    {
+        await using var test = await PhotoHost.CreateAsync();
+        var staff = await test.SignInAsync(ApplicationRoles.Staff);
+        var photo = await test.SeedPhotoAsync(staff);
+        var form = Form(await staff.Client.GetStringAsync(EditPath), "UploadPhoto");
+        var before = await test.SnapshotAsync();
+        using var multipart = Upload(form, new byte[7 * 1024 * 1024]);
+        using HttpContent body = unknownContentLength ? new UnknownLengthContent(multipart) : multipart;
+        if (unknownContentLength) Assert.Null(body.Headers.ContentLength);
+
+        using var response = await staff.Client.PostAsync(Attribute(form, "action"), body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+        Assert.Contains("Photo upload could not be completed", html);
+        Assert.Contains("JPEG or PNG photo no larger than 5 MiB", html);
+        Assert.Contains("refresh the page", html);
+        Assert.Contains($"href=\"{EditPath}\"", html);
+        Assert.DoesNotContain(test.Root, html);
+        Assert.DoesNotContain(photo.StorageFileName, html);
+        Assert.DoesNotContain("not-a-real-photo.html", html);
+        Assert.Equal(before, await test.SnapshotAsync());
+    }
+
+    [Theory]
+    [InlineData("/Staff/Inventory/Edit?id=1")]
+    [InlineData("/Staff/Inventory/Edit?id=1&handler=RemovePhoto")]
+    [InlineData("/Staff/Inventory/Edit?id=1&handler=RemovePhoto&handler=UploadPhoto")]
+    public async Task NonUploadBadRequest_KeepsGenericErrorResponse(string path)
+    {
+        await using var test = await PhotoHost.CreateAsync();
+        var staff = await test.SignInAsync(ApplicationRoles.Staff);
+        await test.SeedPhotoAsync(staff);
+        var before = await test.SnapshotAsync();
+        using var body = new FormUrlEncodedContent([]); // Missing antiforgery token.
+        using var response = await staff.Client.PostAsync(path, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Request could not be completed", html);
+        Assert.DoesNotContain("Photo upload could not be completed", html);
+        Assert.Equal(before, await test.SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task DirectStatusRequest_CannotSelectUploadGuidanceThroughQueryParameters()
+    {
+        await using var test = await PhotoHost.CreateAsync();
+        using var response = await test.Public.GetAsync("/Status/400?handler=UploadPhoto&id=1");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Request could not be completed", html);
+        Assert.DoesNotContain("Photo upload could not be completed", html);
+    }
+
+    [Theory]
     [InlineData(ListingStatus.Held)]
     [InlineData(ListingStatus.Collected)]
     [InlineData(ListingStatus.Archived)]
@@ -342,6 +403,23 @@ public sealed class ListingImageHttpTests
         using var image = SKImage.FromBitmap(bitmap);
         using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         return encoded.ToArray();
+    }
+
+    private sealed class UnknownLengthContent(HttpContent inner) : HttpContent
+    {
+        public UnknownLengthContent(MultipartFormDataContent inner) : this((HttpContent)inner)
+        {
+            Headers.ContentType = inner.Headers.ContentType;
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+            => inner.CopyToAsync(stream);
     }
 
     private sealed record Session(HttpClient Client, ApplicationUser User, ClaimsPrincipal Principal);

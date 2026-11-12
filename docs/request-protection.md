@@ -31,7 +31,7 @@ A rejected request receives **HTTP 429**, a numeric `Retry-After` header in seco
 
 Policies are attached to Razor Page endpoints through application-model conventions, not attributes on individual handler methods. This covers aliases such as `/Staff/Pickups/Index`. Each policy allows GET and HEAD without a limiter. The image policy checks the same handler selection as Razor Pages (route value, otherwise the first query value, ignoring case); ordinary listing edits and photo removal keep their existing behavior. Extra handler query values or form fields cannot change which upload budget applies.
 
-There is no global limiter. Browsing, image GETs, static files, and unselected endpoints keep their normal behavior. The later operational-safeguards checkpoint adds `/health/live` and `/health/ready`; both remain outside these POST policies.
+There is no global limiter. Browsing, image GETs, static files, and unselected endpoints keep their normal behavior. The operational-safeguards checkpoint added `/health/live` and `/health/ready`; both remain outside these POST policies.
 
 ## Cookies and response headers
 
@@ -55,4 +55,4 @@ Verification on November 6, 2026: `dotnet build LUThrift.slnx --no-restore` succ
 dotnet test LUThrift.slnx --no-build --filter 'FullyQualifiedName~RequestSecurityTests|FullyQualifiedName~RequestRateLimitTests|FullyQualifiedName~AccountSecurityTests|FullyQualifiedName~StudentRegistrationTests|FullyQualifiedName~RegistrationSecurityTests|FullyQualifiedName~AuthorizationTests|FullyQualifiedName~StudentReserveActionTests|FullyQualifiedName~MyReservationsPageTests|FullyQualifiedName~StaffPickupConfirmationTests|FullyQualifiedName~StaffPickupWorkflowTests|FullyQualifiedName~ListingImageHttpTests' --logger 'console;verbosity=minimal'
 ```
 
-Counters are in memory per application instance and reset on restart. Multiple instances do not share budgets; deployment-specific limits, proxy configuration, and load behavior remain unverified. See [ASP.NET Core rate limiting](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit?view=aspnetcore-10.0) for the middleware's deployment considerations. The full suite is reserved for Prompt 5; no browser automation or development database changes are part of this checkpoint.
+Counters are in memory per application instance and reset on restart. Multiple instances do not share budgets; deployment-specific limits, proxy configuration, and load behavior remain unverified. See [ASP.NET Core rate limiting](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit?view=aspnetcore-10.0) for the middleware's deployment considerations. The November 6 checkpoint did not run the full suite or browser automation. Request-protection tests later passed as part of the [November 12 full-suite verification](../README.md#week-8-final-verification), with no development database changes.

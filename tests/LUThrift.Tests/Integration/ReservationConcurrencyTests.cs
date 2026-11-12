@@ -16,7 +16,7 @@ using Npgsql;
 
 namespace LUThrift.Tests.Integration;
 
-public class ReservationConcurrencyTests
+public partial class ReservationConcurrencyTests
 {
     internal const string ConnectionEnvironmentVariable = "LUTHRIFT_RESERVATION_TEST_CONNECTION";
     private static readonly DateTimeOffset InitialNow = new(2026, 1, 5, 15, 0, 0, TimeSpan.Zero);

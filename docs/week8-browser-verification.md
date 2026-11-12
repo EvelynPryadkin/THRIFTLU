@@ -35,14 +35,14 @@ Pickup hours were explicitly synthetic process settings: Monday, then Wednesday,
 | Photo storage cleanup | **Passed.** Before disposal, the four stored photo files matched the four metadata rows exactly; replaced files had not been left behind. |
 | Walkthrough cleanup | **Completed.** The replacement hold was canceled through the Student form. The three eligible Missing/Available/Draft walkthrough items were archived through inventory forms; Collected items stayed terminal. The isolated host, browser, database, photo storage, fixtures, and temporary tools were then removed. |
 
-One feedback defect was found: files above the 6 MiB request cap receive a generic error rather than the useful photo-size message. Failed-upload preservation still passed. This was a verification-only run; no application-code fix was made.
+One feedback defect was found during this walkthrough: files above the 6 MiB request cap received a generic error rather than the useful photo-size message. Failed-upload preservation still passed. This was a verification-only run; no application-code fix was made on November 9/11. The defect was fixed on November 12 and verified by HTTP tests and a separate Development Kestrel probe; see the [final verification](../README.md#week-8-final-verification). A fresh browser check of that error-page change remains pending.
 
 ## Failures, limitations, and unverified coverage
 
 | Item | Status |
 | --- | --- |
 | Staff inventory table thumbnails | **Existing UI limitation.** The inventory table still shows its temporary placeholder even when a photo exists. The uploaded staff preview is on Edit; catalog and details display the actual photo. |
-| Above-cap upload feedback | **Failed; unresolved.** The 7 MiB case needs photo-size guidance while retaining the current HTTP rejection and preservation of the previous photo. |
+| Above-cap upload feedback | **Failed in the November 9/11 browser run; fixed November 12.** HTTP tests and real Kestrel Content-Length/chunked 7 MiB probes passed with guidance and unchanged stored data. The updated error page has not been checked again in a browser. |
 | Expiration followed by a replacement hold | **Not repeated in this browser run.** The stale-form scenario here used cancellation. Existing Week 6 browser and PostgreSQL evidence remains separate; the clock and duration were not changed to accelerate expiration. |
 | Other environments | Physical devices, other browsers, and screen readers were not checked in this walkthrough. |
 
@@ -64,4 +64,4 @@ The following existing regression checks ran on November 11 and passed **85 test
 dotnet test LUThrift.slnx --no-build --filter 'FullyQualifiedName~ListingImageHttpTests|FullyQualifiedName~StaffPickupConfirmationTests|FullyQualifiedName~StaffPickupWorkflowTests|FullyQualifiedName~ReservedItemMissingTests' --logger 'console;verbosity=minimal'
 ```
 
-This command used the existing isolated test infrastructure, not the development database. It did not run a build or the full suite. The full suite remains reserved for Prompt 5.
+This command used the existing isolated test infrastructure, not the development database. It did not run a build or the full suite. The full suite subsequently passed on November 12; it does not change which browser observations were made here. The user confirmed **no additional browser checks** on November 12, so no extra user-run results have been inferred from the supplied placeholder.

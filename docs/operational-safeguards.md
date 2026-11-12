@@ -6,6 +6,8 @@ Unhandled request failures render a friendly `/Error` page with HTTP **500**, a 
 
 Empty error responses re-execute `/Status/{statusCode}` without redirecting the browser. A missing route, hidden item, or unknown item renders a useful **404** page; other error codes remain unchanged. Existing Login and Access Denied redirects still work, and responses already containing validation feedback are not replaced. The error/status pages only render content, including when the original request was POST. Their antiforgery exemption does not authorize a write operation. Both pages are anonymous, use no-store caching, and use a minimal layout without account/database queries so a database outage cannot break their navigation.
 
+Rejected Staff Edit photo POSTs that reach this status handler with 400 or 413 receive JPEG/PNG, 5 MiB, refresh, and return-to-listing guidance. The handler recognizes the original server re-execution route and first upload-handler query value; direct `/Status` query parameters cannot select this message. A bounded positive listing ID may build a navigation link, but cannot load data or bypass the Staff policy. The body is not read again, and no exception, filename, or arbitrary failed URL is displayed. Other 400 responses retain their generic message. A proxy rejection before the request reaches the app remains the proxy's responsibility.
+
 These responses also apply in local Development; use a debugger to inspect exceptions locally. No public error response includes diagnostic details. A response already streaming to the client cannot be replaced by an error page: the connection is aborted and a safe failure event is logged.
 
 ## Logs and audit history
@@ -56,7 +58,7 @@ curl -k -I https://localhost:7131/Staff/Pickups
 
 Expect 200/200 for healthy probes, 404 for the missing page, 500 for the safe error preview, and a Login redirect for anonymous Staff access. `/Error` renders the template directly; it is not an endpoint for deliberately throwing an exception. `-k` is only for the local development certificate; use normal certificate verification for deployment probes. Probe HTTPS directly so an HTTP-to-HTTPS redirect is not mistaken for a health result.
 
-Readiness failure and unexpected GET/POST exceptions are exercised with isolated test databases and controlled faults. Do not interrupt the shared development database just to test failure responses. No browser automation or full-suite run is part of this checkpoint; the full suite remains for Prompt 5.
+Readiness failure and unexpected GET/POST exceptions are exercised with isolated test databases and controlled faults. Do not interrupt the shared development database just to test failure responses. The November 8 checkpoint did not run browser automation or the full suite; the later [November 12 verification](../README.md#week-8-final-verification) includes all operational tests.
 
 ## Verification record — November 8, 2026
 

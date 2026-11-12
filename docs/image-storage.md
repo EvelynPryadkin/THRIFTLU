@@ -22,7 +22,7 @@ Apply the migration to the intended local database using the existing setup comm
 dotnet ef database update --project src/LUThrift.Web -- --environment Development
 ```
 
-This checkpoint does not apply it to the development database automatically. Back up image storage together with the database: metadata alone cannot restore the photo bytes. Changing `RootPath` requires moving the existing files as well. Local disk is suitable for a single host, or hosts sharing the same storage directory; independent disks on multiple application instances are not supported.
+The app does not apply it to the development database automatically. Back up image storage together with the database: metadata alone cannot restore the photo bytes. Changing `RootPath` requires moving the existing files as well. Storage must survive app restarts and deployment replacement; container deployments need a persistent mounted volume, not a disposable writable layer. Local disk is suitable for a single host, or hosts sharing the same storage directory; independent disks on multiple application instances are not supported.
 
 ## Accepted content and dependency
 
@@ -51,7 +51,7 @@ The filesystem and database do not share a distributed transaction. If commit ac
 
 Create the listing first, then open `/Staff/Inventory/Edit?id=LISTING_ID`. The photo section has an uploaded preview or the existing placeholder. Upload/replace and remove use separate antiforgery-protected POST forms under the existing Staff folder policy. Only the listing-information handler binds `UpdateListingInput`; photo handlers bind the uploaded file and expected image ID. This keeps missing listing fields from invalidating photo-only submissions and prevents submitted listing/status/actor fields from changing inventory.
 
-Success redirects back to Edit with a confirmation. Validation errors reload current metadata, categories, and preview; stale forms return HTTP 409 with a refresh message. The page caps requests and multipart bodies at 6 MiB to bound parsing overhead, while the service's actual image-byte limit remains 5 MiB. The browser's `accept` hint is a convenience; decoded content remains authoritative. There is no upload field on the Create page in this checkpoint.
+Success redirects back to Edit with a confirmation. Validation errors reload current metadata, categories, and preview; stale forms return HTTP 409 with a refresh message. The page caps requests and multipart bodies at 6 MiB to bound parsing overhead, while the service's actual image-byte limit remains 5 MiB. A rejected upload that reaches the application's 400/413 status page receives JPEG/PNG, 5 MiB, refresh, and return-to-listing guidance without reading its body again. This guidance does not claim every rejection is a size error; missing antiforgery or malformed forms can also cause 400. An upstream proxy can enforce its own limit before this app receives the request. The browser's `accept` hint is a convenience; decoded content remains authoritative. There is no upload field on the Create page in this checkpoint.
 
 Catalog summaries/details project only `HasImage` in addition to their existing display fields. Uploaded images use `/Thrift/Image/{listingId}` with responsive contained sizing and encoded alternative text derived from the title. Listings without metadata keep the local SVG placeholder. Storage filenames and filesystem paths never appear in these URLs or view models.
 
@@ -68,7 +68,7 @@ dotnet test LUThrift.slnx --filter 'FullyQualifiedName~ImageUploadTests|FullyQua
 git diff --check
 ```
 
-Tests use generated synthetic image bytes, SQLite, and isolated temporary directories. They do not read user secrets or use the development database. The full suite and deployment-specific storage checks are reserved for later prompts. HTTP tests exercise the UI handlers; browser layout/accessibility checks have not been performed.
+Tests use generated synthetic image bytes, SQLite, and isolated temporary directories. They do not read user secrets or use the development database. The checkpoint results below are historical; see the [November 12 final verification](../README.md#week-8-final-verification) for the full suite and real PostgreSQL image-migration checks, and the [November 9/11 browser record](week8-browser-verification.md) for layout, keyboard, and workflow observations. Deployment-specific storage checks remain pending.
 
 Checkpoint 1 verification on November 5, 2026: dependency restore succeeded; the solution build finished with **0 warnings and 0 errors**; the focused command above passed **64 tests, 0 failed, 0 skipped** at that checkpoint. Coverage includes valid/corrupt/spoofed content, byte and pixel limits, all eight orientations, metadata removal, optional/unique metadata, add/replace/remove, stale and simultaneous replacements on separate SQLite connections, audit-failure rollback, cancellation before commit, uncertain commit acknowledgement, and failed cleanup after success. Listing and reservation snapshots remain unchanged by photo operations.
 
@@ -81,4 +81,4 @@ dotnet test LUThrift.slnx --no-restore --filter 'FullyQualifiedName~ListingImage
 dotnet test LUThrift.slnx --no-build --filter 'FullyQualifiedName~PublicItemDetailsTests|FullyQualifiedName~CatalogExpirationTests'
 ```
 
-No schema or dependency change was needed for checkpoint 2. The full suite remains reserved for Prompt 5. PostgreSQL runtime checks and manual browser layout/keyboard checks remain unperformed; no browser automation was used.
+No schema or dependency change was needed for checkpoint 2. At that point the full suite was reserved for Prompt 5, and PostgreSQL runtime and browser layout/keyboard checks had not been performed. Later results are linked above. The November 12 full suite passed 883 tests without skips, including four new PostgreSQL image-migration cases; the existing simultaneous image replacement tests still use SQLite. Linux/Windows native runtime, real deployment storage/backup restoration, and PostgreSQL-specific photo update races remain unverified.
