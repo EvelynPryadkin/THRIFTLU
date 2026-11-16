@@ -65,7 +65,7 @@ public class AuthorizationTests(AuthorizationWebApplicationFactory factory)
         Assert.True(HasLink(navigation, "/Thrift"));
         Assert.Contains("Browse items", navigation);
         var main = Regex.Match(html, @"<main\b[^>]*>([\s\S]*?)</main>", RegexOptions.IgnoreCase).Groups[1].Value;
-        Assert.Matches(@"<h1\b[^>]*>\s*LU Thrift\s*</h1>", main);
+        Assert.Matches(@"<h1\b[^>]*>\s*Find something useful\.\s+Give it a second life\.\s*</h1>", main);
         Assert.True(HasLink(main, "/Thrift"));
         Assert.Contains("Browse items", main);
         Assert.DoesNotContain("<article", main, StringComparison.OrdinalIgnoreCase);

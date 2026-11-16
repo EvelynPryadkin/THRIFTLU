@@ -1,33 +1,280 @@
+:root {
+  --thrift-blue: #004A87;
+  --thrift-navy: #0A1231;
+  --thrift-cream: #EDE8D9;
+  --thrift-gold: #DBA538;
+  --thrift-paper: #fff;
+  --thrift-muted: #49536a;
+  --thrift-border: rgb(10 18 49 / 18%);
+  --thrift-font-heading: Georgia, "Times New Roman", serif;
+  --thrift-font-interface: Arial, Helvetica, sans-serif;
+  --thrift-radius: .2rem;
+  --bs-font-sans-serif: var(--thrift-font-interface);
+  --bs-body-font-family: var(--thrift-font-interface);
+  --bs-body-color: var(--thrift-navy);
+  --bs-body-bg: var(--thrift-paper);
+  --bs-primary: var(--thrift-blue);
+  --bs-primary-rgb: 0, 74, 135;
+  --bs-link-color: var(--thrift-blue);
+  --bs-link-color-rgb: 0, 74, 135;
+  --bs-link-hover-color: var(--thrift-navy);
+  --bs-link-hover-color-rgb: 10, 18, 49;
+  --bs-border-color: var(--thrift-border);
+  --bs-border-radius: var(--thrift-radius);
+  --bs-focus-ring-color: rgb(0 74 135 / 25%);
+}
+
 html {
-  font-size: 14px;
-}
-
-@media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
-}
-
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
-}
-
-html {
-  position: relative;
-  min-height: 100%;
+  font-size: 16px;
 }
 
 body {
-  margin-bottom: 60px;
+  margin: 0;
+  font-family: var(--thrift-font-interface);
+  line-height: 1.6;
 }
 
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-  color: var(--bs-secondary-color);
-  text-align: end;
+h1, h2, h3 {
+  color: var(--thrift-navy);
+  font-family: var(--thrift-font-heading);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-  text-align: start;
+h1 {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+a {
+  text-underline-offset: .2em;
+}
+
+/* Keep one palette for Bootstrap controls, rather than scoped overrides. */
+.btn {
+  font-weight: 600;
+}
+
+.btn-primary {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--thrift-blue);
+  --bs-btn-border-color: var(--thrift-blue);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--thrift-navy);
+  --bs-btn-hover-border-color: var(--thrift-navy);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--thrift-navy);
+  --bs-btn-active-border-color: var(--thrift-navy);
+  --bs-btn-disabled-bg: var(--thrift-blue);
+  --bs-btn-disabled-border-color: var(--thrift-blue);
+  --bs-btn-focus-shadow-rgb: 0, 74, 135;
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--thrift-blue);
+  --bs-btn-border-color: var(--thrift-blue);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--thrift-blue);
+  --bs-btn-hover-border-color: var(--thrift-blue);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--thrift-navy);
+  --bs-btn-active-border-color: var(--thrift-navy);
+  --bs-btn-disabled-color: var(--thrift-blue);
+  --bs-btn-disabled-border-color: var(--thrift-blue);
+  --bs-btn-focus-shadow-rgb: 0, 74, 135;
+}
+
+.nav-pills {
+  --bs-nav-pills-link-active-bg: var(--thrift-blue);
+}
+
+.pagination {
+  --bs-pagination-active-bg: var(--thrift-blue);
+  --bs-pagination-active-border-color: var(--thrift-blue);
+}
+
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+  border-color: var(--thrift-blue);
+  box-shadow: 0 0 0 .2rem rgb(0 74 135 / 18%);
+}
+
+.form-check-input:checked {
+  background-color: var(--thrift-blue);
+  border-color: var(--thrift-blue);
+}
+
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible,
+.form-check-input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--thrift-blue);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: absolute;
+  top: .5rem;
+  left: .5rem;
+  z-index: 1100;
+  padding: .75rem 1rem;
+  color: var(--thrift-navy);
+  background: var(--thrift-cream);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.home-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 2.5rem;
+  padding-block: 1rem 3.5rem;
+}
+
+.home-location {
+  margin-bottom: 1rem;
+  color: var(--thrift-blue);
+  font-size: .8125rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+.home-intro h1 {
+  max-width: 23ch;
+  margin-bottom: 1.25rem;
+  font-size: clamp(2.25rem, 4.5vw, 3.5rem);
+  font-weight: 400;
+  letter-spacing: -.025em;
+  line-height: 1.15;
+}
+
+.home-lead {
+  max-width: 35rem;
+  margin-bottom: 1.5rem;
+  color: var(--thrift-muted);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.home-browse {
+  padding: .75rem 1.25rem;
+  font-size: 1rem;
+}
+
+.home-browse-note {
+  margin: .75rem 0 0;
+  color: var(--thrift-muted);
+  font-size: .8125rem;
+}
+
+.home-room {
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  background: var(--thrift-cream);
+  border-top: 3px solid var(--thrift-gold);
+}
+
+.home-room-label {
+  margin-bottom: 1.25rem;
+  color: var(--thrift-blue);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.home-room h2 {
+  margin-bottom: .5rem;
+  font-size: 2rem;
+  font-weight: 400;
+}
+
+.home-room-location {
+  margin-bottom: 1.25rem;
+  color: var(--thrift-blue);
+  font-weight: 600;
+}
+
+.home-room-note {
+  margin: 1.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--thrift-border);
+  color: var(--thrift-muted);
+  font-size: .875rem;
+}
+
+.home-how {
+  padding-block: 2.5rem;
+  border-top: 1px solid var(--thrift-border);
+}
+
+.home-how > h2 {
+  margin-bottom: 2rem;
+  font-size: 1.75rem;
+  font-weight: 400;
+}
+
+.home-steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-steps li {
+  min-width: 0;
+}
+
+.step-number {
+  display: block;
+  margin-bottom: .5rem;
+  color: var(--thrift-blue);
+  font-size: .875rem;
+}
+
+.home-steps h3 {
+  margin-bottom: .75rem;
+  font-size: 1.375rem;
+}
+
+.home-steps p {
+  margin: 0;
+  color: var(--thrift-muted);
+  line-height: 1.7;
+}
+
+.home-steps strong {
+  color: var(--thrift-navy);
+  font-weight: 600;
+}
+
+.home-pickup-note {
+  max-width: 48rem;
+  padding: 1.5rem;
+  background: var(--thrift-cream);
+  border-left: 3px solid var(--thrift-gold);
+}
+
+.home-pickup-note h2 {
+  margin-bottom: .75rem;
+  font-size: 1.375rem;
+}
+
+.home-pickup-note p {
+  color: var(--thrift-muted);
+  font-size: .9375rem;
+}
+
+.home-pickup-note p:last-child {
+  margin-bottom: 0;
 }
 
 .listing-photo {
@@ -38,11 +285,25 @@ body {
   max-height: 24rem;
   aspect-ratio: 4 / 3;
   object-fit: contain;
-  background-color: var(--bs-tertiary-bg, #f8f9fa);
-  border-radius: var(--bs-border-radius, 0.375rem);
+  background-color: var(--thrift-cream);
+  border-radius: var(--thrift-radius);
 }
 
 .listing-photo--card {
   height: 15rem;
   max-height: 240px;
+}
+
+@media (min-width: 768px) {
+  .home-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2rem;
+  }
+}
+
+@media (min-width: 992px) {
+  .home-intro {
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    gap: 3.5rem;
+  }
 }

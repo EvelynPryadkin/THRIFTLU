@@ -1,10 +1,51 @@
-﻿@page
+@page
 @model IndexModel
 @{
     ViewData["Title"] = "Home";
 }
 
-<h1>LU Thrift</h1>
-<p class="lead">Find free items from Lawrence University's thrift room.</p>
-<p>Browse what's available before you visit the thrift room in Colman Hall.</p>
-<a asp-page="/Thrift/Index" class="btn btn-primary">Browse items</a>
+<div class="home-page">
+    <section class="home-intro" aria-labelledby="home-heading">
+        <div class="home-intro-copy">
+            <p class="home-location">Lawrence University · Colman Hall</p>
+            <h1 id="home-heading">Find something useful. Give it a second life.</h1>
+            <p class="home-lead">See what's in the Lawrence thrift room before you head over. Everything listed here is free.</p>
+            <a asp-page="/Thrift/Index" class="btn btn-primary btn-lg home-browse">Browse items</a>
+            <p class="home-browse-note">No account needed to browse.</p>
+        </div>
+        <aside class="home-room" aria-labelledby="room-heading">
+            <p class="home-room-label">Around campus</p>
+            <h2 id="room-heading">The thrift room</h2>
+            <p class="home-room-location">Colman Hall</p>
+            <p>Find something you can use, without buying something new. Browse here before making the trip.</p>
+            <p class="home-room-note">Pickup hours are still being confirmed. Item details show whether reservations are currently available.</p>
+        </aside>
+    </section>
+
+    <section class="home-how" aria-labelledby="how-heading">
+        <h2 id="how-heading">How it works</h2>
+        <ol class="home-steps">
+            <li>
+                <span class="step-number" aria-hidden="true">1.</span>
+                <h3>Browse</h3>
+                <p>Take a look through the available items. Use the filters and item details to find what you need.</p>
+            </li>
+            <li>
+                <span class="step-number" aria-hidden="true">2.</span>
+                <h3>Reserve</h3>
+                <p>Sign in with your student account to hold an item. You can have up to <strong>three active reservations</strong> at once.</p>
+            </li>
+            <li>
+                <span class="step-number" aria-hidden="true">3.</span>
+                <h3>Pick up</h3>
+                <p>You have <strong>one hour from confirmation</strong> to collect your item in Colman Hall. Arrive <strong>before the deadline</strong> shown on your reservation.</p>
+            </li>
+        </ol>
+    </section>
+
+    <section class="home-pickup-note" aria-labelledby="pickup-note-heading">
+        <h2 id="pickup-note-heading">Before you reserve</h2>
+        <p>The full hour must fit within pickup hours, without crossing a break or closing time. Your reservation expires at its displayed deadline.</p>
+        <p>Pickup hours are still being confirmed. Check item details for current reservation availability.</p>
+    </section>
+</div>

@@ -1,45 +1,190 @@
-a.navbar-brand {
-  white-space: normal;
-  text-align: center;
-  word-break: break-all;
+/* Shell styles stay here; the shared palette and controls live in site.css. */
+.site-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
 }
 
-a {
-  color: #0077cc;
+.site-header {
+  color: var(--thrift-cream);
+  background: var(--thrift-navy);
+  border-top: 3px solid var(--thrift-gold);
 }
 
-.btn-primary {
+.site-navigation {
+  padding-block: .9rem;
+}
+
+.site-header ::deep .site-brand {
+  display: inline-flex;
+  flex-direction: column;
+  gap: .3rem;
+  margin-right: 2rem;
+  padding: .35rem 0;
+  color: var(--thrift-cream);
+  text-decoration: none;
+}
+
+.site-header ::deep .site-brand:hover {
   color: #fff;
-  background-color: #1b6ec2;
-  border-color: #1861ac;
 }
 
-.nav-pills .nav-link.active, .nav-pills .show > .nav-link {
+.site-brand-context {
+  font-size: .65rem;
+  font-weight: 600;
+  letter-spacing: .09em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.site-brand-name {
+  font-family: var(--thrift-font-heading);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1.1;
+}
+
+.navbar-toggler {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .65rem;
+  color: var(--thrift-cream);
+  border: 1px solid rgb(237 232 217 / 50%);
+  border-radius: var(--thrift-radius);
+  font-size: .875rem;
+}
+
+.navbar-toggler-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.navbar-collapse {
+  min-width: 0;
+}
+
+.primary-navigation {
+  padding-top: .75rem;
+}
+
+/* Deep selectors include the separately rendered login partial. */
+.site-header ::deep .nav-link {
+  padding: .65rem .8rem;
+  color: var(--thrift-cream);
+  border-radius: 0;
+  font-size: .9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  text-decoration: none;
+}
+
+.site-header ::deep .nav-link:hover {
   color: #fff;
-  background-color: #1b6ec2;
-  border-color: #1861ac;
+  text-decoration: underline;
+  text-underline-offset: .35em;
 }
 
-.border-top {
-  border-top: 1px solid #e5e5e5;
-}
-.border-bottom {
-  border-bottom: 1px solid #e5e5e5;
-}
-
-.box-shadow {
-  box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .05);
+.site-header ::deep .nav-link.active {
+  color: #fff;
+  font-weight: 600;
+  box-shadow: inset 3px 0 var(--thrift-gold);
 }
 
-button.accept-policy {
-  font-size: 1rem;
-  line-height: inherit;
+.site-header ::deep .account-navigation {
+  gap: .15rem;
+  margin-top: .5rem;
+  padding-top: .5rem;
+  border-top: 1px solid rgb(237 232 217 / 25%);
 }
 
-.footer {
-  position: absolute;
-  bottom: 0;
+.site-header ::deep .account-logout {
+  margin: 0;
+}
+
+.site-header ::deep a:focus-visible,
+.site-header ::deep button:focus-visible {
+  outline: 3px solid var(--thrift-gold);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+.site-main {
+  flex: 1 0 auto;
   width: 100%;
-  white-space: nowrap;
-  line-height: 60px;
+  padding-top: clamp(2rem, 4vw, 3rem);
+  padding-bottom: clamp(3rem, 6vw, 4rem);
+}
+
+.site-footer {
+  flex-shrink: 0;
+  padding-block: 1.5rem;
+  background: var(--thrift-cream);
+  border-top: 1px solid var(--thrift-border);
+}
+
+.footer-content {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.25rem 2rem;
+}
+
+.site-footer ::deep .footer-brand {
+  color: var(--thrift-navy);
+  font-size: .875rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.footer-location,
+.footer-meta {
+  margin: .25rem 0 0;
+  color: var(--thrift-muted);
+  font-size: .8125rem;
+}
+
+.footer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+}
+
+.footer-meta p {
+  margin: 0;
+}
+
+@media (min-width: 1200px) {
+  .navbar-toggler {
+    display: none;
+  }
+
+  .navbar-collapse {
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .primary-navigation {
+    flex-shrink: 0;
+    gap: .15rem;
+    padding: 0;
+  }
+
+  .site-header ::deep .nav-link.active {
+    box-shadow: inset 0 -2px var(--thrift-gold);
+  }
+
+  .site-header ::deep .account-navigation {
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
 }

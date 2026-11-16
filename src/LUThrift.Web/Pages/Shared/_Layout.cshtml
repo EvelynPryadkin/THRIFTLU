@@ -1,45 +1,59 @@
-﻿@using LUThrift.Web.Authorization
+@using LUThrift.Web.Authorization
+@{
+    var currentPage = ViewContext.RouteData.Values["page"]?.ToString() ?? string.Empty;
+    var currentArea = ViewContext.RouteData.Values["area"]?.ToString() ?? string.Empty;
+    var isHome = currentArea.Length == 0 && currentPage == "/Index";
+    var isCatalog = currentArea.Length == 0 && currentPage.StartsWith("/Thrift/", StringComparison.OrdinalIgnoreCase);
+    var isStaff = currentArea.Length == 0 && currentPage.StartsWith("/Staff/", StringComparison.OrdinalIgnoreCase);
+    var isAdmin = currentArea.Length == 0 && currentPage.StartsWith("/Admin/", StringComparison.OrdinalIgnoreCase);
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - LUThrift.Web</title>
+    <title>@ViewData["Title"] - THRIFTLU</title>
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/LUThrift.Web.styles.css" asp-append-version="true" />
 </head>
-<body>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
+<body class="site-shell">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="site-header">
+        <nav class="navbar navbar-expand-xl site-navigation" data-bs-theme="dark" aria-label="Main navigation">
             <div class="container">
-                <a class="navbar-brand" asp-area="" asp-page="/Index">LUThrift.Web</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
+                <a class="navbar-brand site-brand" asp-area="" asp-page="/Index" aria-label="THRIFTLU home">
+                    <span class="site-brand-context">Lawrence University</span>
+                    <span class="site-brand-name">THRIFTLU</span>
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent"
+                        aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                    <span>Menu</span>
+                    <span class="navbar-toggler-icon" aria-hidden="true"></span>
                 </button>
-                <div id="navbarSupportedContent" class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
+                <div id="navbarSupportedContent" class="navbar-collapse collapse">
+                    <ul class="navbar-nav primary-navigation">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Index">Home</a>
+                            <a class="nav-link @(isHome ? "active" : null)" aria-current="@(isHome ? "page" : null)"
+                               asp-area="" asp-page="/Index">Home</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Thrift/Index">Browse items</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Privacy">Privacy</a>
+                            <a class="nav-link @(isCatalog ? "active" : null)" aria-current="@(isCatalog ? "page" : null)"
+                               asp-area="" asp-page="/Thrift/Index">Browse items</a>
                         </li>
                         @if (User.IsInRole(ApplicationRoles.Staff) || User.IsInRole(ApplicationRoles.Administrator))
                         {
                             <li class="nav-item">
-                                <a class="nav-link text-dark" asp-area="" asp-page="/Staff/Index">Staff</a>
+                                <a class="nav-link @(isStaff ? "active" : null)" aria-current="@(isStaff ? "page" : null)"
+                                   asp-area="" asp-page="/Staff/Index">Staff</a>
                             </li>
                         }
                         @if (User.IsInRole(ApplicationRoles.Administrator))
                         {
                             <li class="nav-item">
-                                <a class="nav-link text-dark" asp-area="" asp-page="/Admin/Index">Admin</a>
+                                <a class="nav-link @(isAdmin ? "active" : null)" aria-current="@(isAdmin ? "page" : null)"
+                                   asp-area="" asp-page="/Admin/Index">Admin</a>
                             </li>
                         }
                     </ul>
@@ -48,15 +62,21 @@
             </div>
         </nav>
     </header>
-    <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
-    </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - LUThrift.Web - <a asp-area="" asp-page="/Privacy">Privacy</a>
+    <main id="main-content" class="container site-main" tabindex="-1">
+        @RenderBody()
+    </main>
+
+    <footer class="site-footer">
+        <div class="container footer-content">
+            <div>
+                <a class="footer-brand" asp-area="" asp-page="/Index">THRIFTLU</a>
+                <p class="footer-location">Lawrence University · Colman Hall</p>
+            </div>
+            <div class="footer-meta">
+                <a asp-area="" asp-page="/Privacy">Privacy</a>
+                <p>&copy; @DateTime.UtcNow.Year THRIFTLU</p>
+            </div>
         </div>
     </footer>
 
