@@ -7,36 +7,46 @@
     var statusLabel = listing.Status == ListingStatus.Held ? "Reserved" : "Available";
 }
 
-<a asp-page="./Index" asp-all-route-data="Model.CatalogRouteValues" class="d-inline-block mb-3">Back to catalog</a>
-<h1 class="text-break mb-4">@listing.Title</h1>
+<div class="item-details-page">
+<a asp-page="./Index" asp-all-route-data="Model.CatalogRouteValues" class="catalog-back-link">Back to catalog</a>
+<header class="page-heading">
+    <h1 class="text-break">@listing.Title</h1>
+</header>
 
-<div class="row g-4">
-    <div class="col-sm-4 col-lg-3">
+<div class="item-detail-layout">
+    <div class="item-detail-media">
         @if (listing.HasImage)
         {
             <img src="@Url.Page("/Thrift/Image", new { id = listing.Id })" alt="Photo of @listing.Title" class="listing-photo" />
         }
         else
         {
-            <img src="~/images/listing-placeholder.svg" alt="No image available" width="192" height="192" class="img-fluid" />
+            <img src="~/images/listing-placeholder.svg" alt="No image available" width="192" height="192" class="listing-placeholder" />
         }
     </div>
-    <div class="col-sm-8 col-lg-9">
-        <dl>
-            <dt>Category</dt>
-            <dd class="text-break">@listing.CategoryName</dd>
-            <dt>Condition</dt>
-            <dd class="text-break">@listing.Condition</dd>
-            <dt>Size</dt>
-            <dd class="text-break">@(listing.Size ?? "Not specified")</dd>
-            <dt>Status</dt>
-            <dd><span class="badge bg-secondary">@statusLabel</span></dd>
+    <div class="item-detail-information">
+        <dl class="listing-facts item-detail-facts">
+            <div>
+                <dt>Category</dt>
+                <dd class="text-break">@listing.CategoryName</dd>
+            </div>
+            <div>
+                <dt>Condition</dt>
+                <dd class="text-break">@listing.Condition</dd>
+            </div>
+            <div>
+                <dt>Size</dt>
+                <dd class="text-break">@(listing.Size ?? "Not specified")</dd>
+            </div>
+            <div>
+                <dt>Status</dt>
+                <dd><span class="badge status-label @(listing.Status == ListingStatus.Held ? "status-label--reserved" : "status-label--available")">@statusLabel</span></dd>
+            </div>
         </dl>
-        <h2 class="h5">Description</h2>
-        <p class="text-break">@listing.Description</p>
 
-        <section class="mt-4" aria-labelledby="reservation-heading">
-            <h2 class="h5" id="reservation-heading">Reserve this item</h2>
+        <section class="item-reservation-panel" aria-labelledby="reservation-heading">
+            <h2 id="reservation-heading">Reserve this item</h2>
+            <p class="pickup-location">Pickup at Colman Hall</p>
             <p>@Model.ReservationAvailabilityMessage</p>
             @if (!Model.IsSignedIn)
             {
@@ -55,5 +65,11 @@
                 </form>
             }
         </section>
+
+        <section class="item-description" aria-labelledby="description-heading">
+            <h2 id="description-heading">Description</h2>
+            <p class="text-break">@listing.Description</p>
+        </section>
     </div>
+</div>
 </div>

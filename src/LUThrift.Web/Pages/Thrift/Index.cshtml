@@ -6,19 +6,26 @@
     ViewData["Title"] = "Browse items";
 }
 
-<h1>@ViewData["Title"]</h1>
-<p class="mb-4">Find free items from the LU Thrift room.</p>
+<div class="catalog-page">
+<header class="page-heading">
+    <p class="page-kicker">The thrift room</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Find free items from the LU Thrift room.</p>
+</header>
 
-<form method="get" asp-page="./Index" class="row g-3 mb-4">
-    <div class="col-12">
+<div class="catalog-layout">
+<aside class="catalog-filters" aria-labelledby="catalog-filters-heading">
+<h2 id="catalog-filters-heading">Find an item</h2>
+<form method="get" asp-page="./Index" class="catalog-filter-form">
+    <div class="catalog-filter-validation">
         <div asp-validation-summary="All" class="text-danger" role="alert"></div>
     </div>
-    <div class="col-sm-6 col-lg-4">
+    <div class="catalog-filter-field">
         <label asp-for="Filter.Search" class="form-label">Search items</label>
         <input asp-for="Filter.Search" type="search" class="form-control" maxlength="150" aria-describedby="search-error" />
         <span asp-validation-for="Filter.Search" id="search-error" class="text-danger"></span>
     </div>
-    <div class="col-sm-6 col-lg-3">
+    <div class="catalog-filter-field">
         <label asp-for="Filter.CategoryId" class="form-label">Category</label>
         <select asp-for="Filter.CategoryId" class="form-select" aria-describedby="category-error">
             <option value="">All categories</option>
@@ -33,7 +40,7 @@
         </select>
         <span asp-validation-for="Filter.CategoryId" id="category-error" class="text-danger"></span>
     </div>
-    <div class="col-sm-6 col-lg-2">
+    <div class="catalog-filter-field">
         <label asp-for="Filter.Size" class="form-label">Size</label>
         <select asp-for="Filter.Size" class="form-select" aria-describedby="size-error">
             <option value="">All sizes</option>
@@ -48,29 +55,35 @@
         </select>
         <span asp-validation-for="Filter.Size" id="size-error" class="text-danger"></span>
     </div>
-    <div class="col-sm-6 col-lg-3">
+    <div class="catalog-filter-field">
         <label asp-for="Filter.Availability" class="form-label">Availability</label>
         <select asp-for="Filter.Availability" asp-items="Html.GetEnumSelectList<CatalogAvailability>()"
                 class="form-select" aria-describedby="availability-error"></select>
         <span asp-validation-for="Filter.Availability" id="availability-error" class="text-danger"></span>
     </div>
-    <div class="col-12">
+    <div class="catalog-filter-actions">
         <button type="submit" class="btn btn-primary">Apply filters</button>
         <a asp-page="./Index" class="btn btn-outline-secondary">Clear filters</a>
     </div>
 </form>
+</aside>
 
+<section class="catalog-results" aria-label="Catalog results">
 @if (ViewData.ModelState.IsValid)
 {
-    <p id="catalog-summary">@Model.Catalog.TotalCount @(Model.Catalog.TotalCount == 1 ? "item" : "items") found. Page @Model.Catalog.PageNumber of @Model.Catalog.TotalPages.</p>
+    <div class="catalog-toolbar">
+        <p id="catalog-summary">@Model.Catalog.TotalCount @(Model.Catalog.TotalCount == 1 ? "item" : "items") found. Page @Model.Catalog.PageNumber of @Model.Catalog.TotalPages.</p>
+        <p class="catalog-order">Newest first</p>
+    </div>
 }
 
 @if (!ViewData.ModelState.IsValid)
 {
-    <p>Check the filters and try again.</p>
+    <div class="empty-state"><p>Check the filters and try again.</p></div>
 }
 else if (Model.Listings.Count == 0)
 {
+    <div class="empty-state">
     @if (Model.HasFilters)
     {
         <p>No items match these filters.</p>
@@ -81,49 +94,57 @@ else if (Model.Listings.Count == 0)
         <p>No items are available right now.</p>
         <p>Please check back soon.</p>
     }
+    </div>
 }
 else
 {
-    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-4">
+    <div class="catalog-grid">
         @foreach (var listing in Model.Listings)
         {
-            <div class="col">
-                <article class="card h-100" aria-labelledby="listing-title-@listing.Id">
-                    <div class="card-body">
-                        @if (listing.HasImage)
-                        {
-                            <img src="@Url.Page("/Thrift/Image", new { id = listing.Id })" alt="Photo of @listing.Title"
-                                 class="listing-photo listing-photo--card mb-3" loading="lazy" />
-                        }
-                        else
-                        {
-                            <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
-                        }
-                        <h2 class="card-title h5 text-break" id="listing-title-@listing.Id">@listing.Title</h2>
-                        <span class="badge @(listing.Status == ListingStatus.Held ? "bg-secondary" : "bg-success") mb-3">@(listing.Status == ListingStatus.Held ? "Reserved" : "Available")</span>
-                        <dl class="mb-0">
+            <article class="card catalog-card h-100" aria-labelledby="listing-title-@listing.Id">
+                <div class="catalog-card-media">
+                    @if (listing.HasImage)
+                    {
+                        <img src="@Url.Page("/Thrift/Image", new { id = listing.Id })" alt="Photo of @listing.Title"
+                             class="listing-photo listing-photo--card" loading="lazy" />
+                    }
+                    else
+                    {
+                        <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96"
+                             class="listing-placeholder" loading="lazy" />
+                    }
+                </div>
+                <div class="card-body">
+                    <h2 class="card-title h5 text-break" id="listing-title-@listing.Id">@listing.Title</h2>
+                    <span class="badge status-label @(listing.Status == ListingStatus.Held ? "status-label--reserved" : "status-label--available")">@(listing.Status == ListingStatus.Held ? "Reserved" : "Available")</span>
+                    <dl class="listing-facts">
+                        <div>
                             <dt>Category</dt>
                             <dd class="text-break">@listing.CategoryName</dd>
+                        </div>
+                        <div>
                             <dt>Condition</dt>
                             <dd class="text-break">@listing.Condition</dd>
+                        </div>
+                        <div>
                             <dt>Size</dt>
-                            <dd class="text-break mb-0">@(listing.Size ?? "Not specified")</dd>
-                        </dl>
-                    </div>
-                    <div class="card-footer bg-transparent border-0 pt-0">
-                        <a asp-page="./Details" asp-all-route-data="Model.DetailsRouteValues(listing.Id)" class="btn btn-outline-primary"
-                           aria-label="View details for @listing.Title">View details</a>
-                    </div>
-                </article>
-            </div>
+                            <dd class="text-break">@(listing.Size ?? "Not specified")</dd>
+                        </div>
+                    </dl>
+                </div>
+                <div class="card-footer bg-transparent border-0 pt-0">
+                    <a asp-page="./Details" asp-all-route-data="Model.DetailsRouteValues(listing.Id)" class="btn btn-outline-primary w-100"
+                       aria-label="View details for @listing.Title">View details</a>
+                </div>
+            </article>
         }
     </div>
 }
 
 @if (ViewData.ModelState.IsValid)
 {
-    <nav aria-label="Catalog pagination" class="mt-4">
-        <ul class="pagination">
+    <nav aria-label="Catalog pagination" class="catalog-pagination">
+        <ul class="pagination flex-wrap">
             @if (Model.Catalog.HasPreviousPage)
             {
                 <li class="page-item">
@@ -150,3 +171,6 @@ else
         </ul>
     </nav>
 }
+</section>
+</div>
+</div>

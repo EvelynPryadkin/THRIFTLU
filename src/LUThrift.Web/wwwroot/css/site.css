@@ -307,3 +307,418 @@ button:focus-visible,
     gap: 3.5rem;
   }
 }
+
+/* Public browsing and the student's reservation pages share these components. */
+.page-heading {
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--thrift-border);
+}
+
+.page-heading h1 {
+  margin-bottom: .75rem;
+}
+
+.page-kicker {
+  margin-bottom: .65rem;
+  color: var(--thrift-blue);
+  font-size: .8125rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+.page-intro {
+  max-width: 48rem;
+  margin-bottom: 0;
+  color: var(--thrift-muted);
+}
+
+.catalog-layout,
+.catalog-grid,
+.item-detail-layout,
+.reservation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+.catalog-filters {
+  align-self: start;
+  min-width: 0;
+  padding: 1.25rem;
+  background: var(--thrift-cream);
+  border-top: 3px solid var(--thrift-gold);
+}
+
+.catalog-filters h2 {
+  margin-bottom: 1.25rem;
+  font-size: 1.375rem;
+}
+
+.catalog-filter-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.catalog-filter-field,
+.catalog-results,
+.item-detail-information,
+.catalog-card,
+.reservation-card {
+  min-width: 0;
+}
+
+.catalog-filter-validation,
+.catalog-filter-actions {
+  grid-column: 1 / -1;
+}
+
+.catalog-filter-validation:has(.validation-summary-valid) {
+  display: none;
+}
+
+.catalog-filters .form-label {
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.catalog-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding-top: .25rem;
+}
+
+.catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .5rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.catalog-toolbar p {
+  margin: 0;
+}
+
+.catalog-order {
+  color: var(--thrift-muted);
+  font-size: .8125rem;
+}
+
+.catalog-card,
+.reservation-card {
+  border-color: var(--thrift-border);
+  border-radius: var(--thrift-radius);
+}
+
+.catalog-card-media,
+.item-detail-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--thrift-cream);
+}
+
+.catalog-card-media {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--thrift-border);
+}
+
+.catalog-card-media .listing-photo,
+.item-detail-media .listing-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+  object-fit: contain;
+}
+
+.catalog-card-media .listing-placeholder,
+.item-detail-media .listing-placeholder {
+  width: 40%;
+  max-width: 8rem;
+  height: auto;
+}
+
+.catalog-card .card-body {
+  padding: 1.125rem;
+}
+
+.catalog-card .card-title {
+  margin-bottom: .75rem;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.catalog-card .card-footer {
+  margin-top: auto;
+  padding: 1.125rem;
+}
+
+.status-label {
+  display: inline-block;
+  max-width: 100%;
+  padding: .3rem .6rem;
+  border: 1px solid var(--thrift-border);
+  border-radius: var(--thrift-radius);
+  font-family: var(--thrift-font-interface);
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.status-label--available {
+  color: var(--thrift-blue);
+  background: rgb(0 74 135 / 7%);
+  border-color: rgb(0 74 135 / 25%);
+}
+
+.status-label--reserved {
+  color: var(--thrift-navy);
+  background: var(--thrift-cream);
+  border-color: var(--thrift-gold);
+}
+
+.status-label--complete {
+  color: var(--thrift-cream);
+  background: var(--thrift-navy);
+}
+
+.status-label--muted {
+  color: var(--thrift-muted);
+  background: var(--thrift-cream);
+}
+
+.listing-facts {
+  display: grid;
+  gap: .65rem;
+  margin: 1rem 0 0;
+  font-size: .875rem;
+}
+
+.listing-facts > div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: .5rem;
+}
+
+.listing-facts dt,
+.reservation-metadata dt {
+  color: var(--thrift-muted);
+  font-size: .8125rem;
+  font-weight: 600;
+}
+
+.listing-facts dd,
+.reservation-metadata dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 2rem;
+  color: var(--thrift-muted);
+  background: var(--thrift-cream);
+  border: 1px solid var(--thrift-border);
+}
+
+.empty-state p:last-child {
+  margin-bottom: 0;
+}
+
+.catalog-pagination {
+  margin-top: 2rem;
+}
+
+.catalog-pagination .pagination {
+  row-gap: .5rem;
+  margin-bottom: 0;
+}
+
+.catalog-pagination .page-link {
+  font-size: .875rem;
+}
+
+.catalog-back-link {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+}
+
+.item-detail-layout {
+  align-items: start;
+  gap: 2rem;
+}
+
+.item-detail-media {
+  border: 1px solid var(--thrift-border);
+  border-radius: var(--thrift-radius);
+}
+
+.item-detail-media .listing-placeholder {
+  max-width: 12rem;
+}
+
+.item-detail-facts {
+  gap: .875rem;
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.item-detail-facts > div {
+  grid-template-columns: 6rem minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.item-reservation-panel {
+  margin-top: 1.75rem;
+  padding: 1.5rem;
+  background: var(--thrift-cream);
+  border-top: 3px solid var(--thrift-gold);
+}
+
+.item-reservation-panel h2,
+.item-description h2 {
+  margin-bottom: .75rem;
+  font-size: 1.5rem;
+}
+
+.pickup-location {
+  color: var(--thrift-blue);
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.item-reservation-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.item-description {
+  margin-top: 2rem;
+}
+
+.item-description p {
+  line-height: 1.75;
+  white-space: pre-line;
+}
+
+.reservation-overview {
+  margin-bottom: 2rem;
+  padding: 1rem 1.25rem;
+  color: var(--thrift-navy);
+  background: var(--thrift-cream);
+  border-left: 3px solid var(--thrift-gold);
+  font-weight: 600;
+}
+
+.reservation-section {
+  margin-bottom: 2.5rem;
+}
+
+.reservation-section-heading {
+  margin-bottom: 1.25rem;
+}
+
+.reservation-section-heading h2 {
+  font-size: 1.75rem;
+}
+
+.reservation-section-heading p {
+  max-width: 48rem;
+  margin: .75rem 0 0;
+  color: var(--thrift-muted);
+  font-size: .9375rem;
+}
+
+.reservation-section--history {
+  padding-top: 2rem;
+  border-top: 1px solid var(--thrift-border);
+}
+
+.reservation-card--current {
+  border-top: 3px solid var(--thrift-blue);
+}
+
+.reservation-card .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.reservation-card-heading {
+  margin-bottom: 0;
+  font-size: 1.375rem;
+  line-height: 1.3;
+}
+
+.reservation-metadata {
+  display: grid;
+  gap: 1rem;
+}
+
+.reservation-metadata dt {
+  margin-bottom: .25rem;
+}
+
+.reservation-metadata time {
+  font-variant-numeric: tabular-nums;
+}
+
+.reservation-card--current .reservation-deadline {
+  padding: 1rem;
+  background: var(--thrift-cream);
+  border-left: 3px solid var(--thrift-gold);
+}
+
+.reservation-card--current .reservation-deadline time {
+  color: var(--thrift-navy);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.reservation-actions {
+  margin-top: auto;
+  padding-top: .25rem;
+}
+
+@media (min-width: 576px) and (max-width: 991.98px) {
+  .catalog-filter-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 992px) {
+  .catalog-layout {
+    grid-template-columns: 14rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .item-detail-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+
+  .reservation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

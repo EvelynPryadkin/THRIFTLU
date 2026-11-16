@@ -5,52 +5,60 @@
     ViewData["Title"] = "My reservations";
 }
 
-<h1>@ViewData["Title"]</h1>
-<p id="active-reservation-count" class="lead">Active reservations: @Model.Overview.ActiveCount of @Model.MaximumActiveReservations</p>
-<p>Reservation times include the campus timezone and UTC offset. You can cancel an active reservation before its deadline.</p>
+<div class="account-reservations-page">
+    <header class="page-heading">
+        <p class="page-kicker">Your account</p>
+        <h1>@ViewData["Title"]</h1>
+        <p class="page-intro">Reservation times include the campus timezone and UTC offset. You can cancel an active reservation before its deadline.</p>
+    </header>
 
-@if (!string.IsNullOrWhiteSpace(Model.ReservationMessage))
-{
-    <div class="alert alert-info" role="status">@Model.ReservationMessage</div>
-}
+    <div class="reservation-overview">
+        <p id="active-reservation-count" class="mb-0">Active reservations: @Model.Overview.ActiveCount of @Model.MaximumActiveReservations</p>
+    </div>
 
-<section id="current-reservations" aria-labelledby="current-reservations-heading" class="mb-4">
-    <h2 id="current-reservations-heading" class="h4">Current reservations</h2>
-    @if (Model.Overview.Current.Count == 0)
+    @if (!string.IsNullOrWhiteSpace(Model.ReservationMessage))
     {
-        <p>You have no current reservations.</p>
+        <div class="alert alert-info" role="status">@Model.ReservationMessage</div>
     }
-    else
-    {
-        <div class="row row-cols-1 row-cols-lg-2 g-3">
-            @foreach (var reservation in Model.Overview.Current)
-            {
-                <div class="col">
-                    <partial name="_ReservationCard" model="reservation" />
-                </div>
-            }
+
+    <section id="current-reservations" aria-labelledby="current-reservations-heading" class="reservation-section">
+        <div class="reservation-section-heading">
+            <h2 id="current-reservations-heading">Current reservations</h2>
         </div>
-    }
-</section>
-
-<section id="reservation-history" aria-labelledby="reservation-history-heading">
-    <h2 id="reservation-history-heading" class="h4">Recent history</h2>
-    <p>Your latest @ReservationOverview.RecentHistoryLimit past reservations, newest first. Item titles remain visible even when public details are no longer available.</p>
-    @if (Model.Overview.RecentHistory.Count == 0)
-    {
-        <p>No recent reservations yet.</p>
-    }
-    else
-    {
-        <div class="row row-cols-1 row-cols-lg-2 g-3">
-            @foreach (var reservation in Model.Overview.RecentHistory)
-            {
-                <div class="col">
+        @if (Model.Overview.Current.Count == 0)
+        {
+            <p class="empty-state">You have no current reservations.</p>
+        }
+        else
+        {
+            <div class="reservation-grid">
+                @foreach (var reservation in Model.Overview.Current)
+                {
                     <partial name="_ReservationCard" model="reservation" />
-                </div>
-            }
-        </div>
-    }
-</section>
+                }
+            </div>
+        }
+    </section>
 
-<a asp-page="/Thrift/Index" class="d-inline-block mt-3">Browse items</a>
+    <section id="reservation-history" aria-labelledby="reservation-history-heading" class="reservation-section reservation-section--history">
+        <div class="reservation-section-heading">
+            <h2 id="reservation-history-heading">Recent history</h2>
+            <p>Your latest @ReservationOverview.RecentHistoryLimit past reservations, newest first. Item titles remain visible even when public details are no longer available.</p>
+        </div>
+        @if (Model.Overview.RecentHistory.Count == 0)
+        {
+            <p class="empty-state">No recent reservations yet.</p>
+        }
+        else
+        {
+            <div class="reservation-grid">
+                @foreach (var reservation in Model.Overview.RecentHistory)
+                {
+                    <partial name="_ReservationCard" model="reservation" />
+                }
+            </div>
+        }
+    </section>
+
+    <a asp-page="/Thrift/Index" class="btn btn-primary">Browse items</a>
+</div>
