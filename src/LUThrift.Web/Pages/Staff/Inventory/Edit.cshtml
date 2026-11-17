@@ -4,7 +4,12 @@
     ViewData["Title"] = "Edit listing";
 }
 
-<h1>@ViewData["Title"]</h1>
+<a asp-page="./Index" class="catalog-back-link">Back to inventory</a>
+<header class="page-heading">
+    <p class="page-kicker">Staff inventory</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Update the item information or manage its photo.</p>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(Model.PhotoMessage))
 {
@@ -14,13 +19,13 @@
 @if (!Model.CanEdit)
 {
     <div class="alert alert-warning" role="alert">@(Model.UnavailableMessage ?? "This listing cannot be edited.")</div>
-    <a asp-page="./Index">Back to inventory</a>
 }
 else
 {
-    <div class="row">
-        <div class="col-md-8 col-lg-6">
-            <form method="post" asp-page="./Edit" asp-route-id="@Model.ListingId">
+    <div class="listing-edit-layout">
+        <section class="form-panel" aria-labelledby="listing-information-heading">
+            <h2 id="listing-information-heading" class="h4">Listing information</h2>
+            <form method="post" asp-page="./Edit" asp-route-id="@Model.ListingId" class="themed-form">
                 <div asp-validation-summary="ModelOnly" class="text-danger" role="alert"></div>
                 <div class="mb-3">
                     <label asp-for="Input.Title" class="form-label"></label>
@@ -49,46 +54,50 @@ else
                     </select>
                     <span asp-validation-for="Input.CategoryId" id="category-error" class="text-danger"></span>
                 </div>
-                <button type="submit" class="btn btn-primary">Save changes</button>
-                <a asp-page="./Index" class="btn btn-outline-secondary">Cancel</a>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save changes</button>
+                    <a asp-page="./Index" class="btn btn-outline-secondary">Cancel</a>
+                </div>
             </form>
-            <section class="mt-4" aria-labelledby="photo-heading">
-                <h2 id="photo-heading" class="h4">Listing photo</h2>
+        </section>
+        <section class="form-panel listing-photo-panel themed-form" aria-labelledby="photo-heading">
+            <h2 id="photo-heading" class="h4">Listing photo</h2>
+            <div class="listing-photo-preview">
                 @if (Model.ImageId.HasValue)
                 {
                     <img src="@Url.Page("/Thrift/Image", new { id = Model.ListingId })"
-                         alt="Photo of @Model.Input.Title" class="listing-photo img-fluid mb-3" />
+                         alt="Photo of @Model.Input.Title" class="listing-photo" />
                 }
                 else
                 {
                     <img src="~/images/listing-placeholder.svg" alt="No image available" width="192" height="192"
-                         class="img-fluid mb-3" />
+                         class="listing-placeholder" />
                 }
-                @if (!string.IsNullOrWhiteSpace(Model.PhotoError))
-                {
-                    <div id="photo-error" class="alert alert-danger" role="alert">@Model.PhotoError</div>
-                }
-                <p id="photo-help">Optional JPEG or PNG, up to 5 MiB and 20 million pixels, with no side longer than 8192 pixels. Photo changes are saved separately from listing information.</p>
-                <form method="post" enctype="multipart/form-data" asp-page="./Edit" asp-page-handler="UploadPhoto"
-                      asp-route-id="@Model.ListingId" asp-antiforgery="true" class="mb-3">
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.PhotoError))
+            {
+                <div id="photo-error" class="alert alert-danger" role="alert">@Model.PhotoError</div>
+            }
+            <p id="photo-help" class="form-note">Optional JPEG or PNG, up to 5 MiB and 20 million pixels, with no side longer than 8192 pixels. Photo changes are saved separately from listing information.</p>
+            <form method="post" enctype="multipart/form-data" asp-page="./Edit" asp-page-handler="UploadPhoto"
+                  asp-route-id="@Model.ListingId" asp-antiforgery="true" class="mb-3">
+                <input type="hidden" name="ExpectedImageId" value="@Model.ImageId" />
+                <div class="mb-3">
+                    <label for="listing-photo" class="form-label">@(Model.ImageId.HasValue ? "Choose a replacement photo" : "Choose a photo")</label>
+                    <input type="file" id="listing-photo" name="Photo" accept="image/jpeg,image/png" class="form-control"
+                           aria-describedby="@(Model.PhotoError is null ? "photo-help" : "photo-help photo-error")" required />
+                </div>
+                <button type="submit" class="btn btn-primary">@(Model.ImageId.HasValue ? "Replace photo" : "Upload photo")</button>
+            </form>
+            @if (Model.ImageId.HasValue)
+            {
+                <form method="post" asp-page="./Edit" asp-page-handler="RemovePhoto" asp-route-id="@Model.ListingId"
+                      asp-antiforgery="true" class="danger-action">
                     <input type="hidden" name="ExpectedImageId" value="@Model.ImageId" />
-                    <div class="mb-3">
-                        <label for="listing-photo" class="form-label">@(Model.ImageId.HasValue ? "Choose a replacement photo" : "Choose a photo")</label>
-                        <input type="file" id="listing-photo" name="Photo" accept="image/jpeg,image/png" class="form-control"
-                               aria-describedby="@(Model.PhotoError is null ? "photo-help" : "photo-help photo-error")" required />
-                    </div>
-                    <button type="submit" class="btn btn-primary">@(Model.ImageId.HasValue ? "Replace photo" : "Upload photo")</button>
+                    <button type="submit" class="btn btn-outline-danger">Remove photo</button>
                 </form>
-                @if (Model.ImageId.HasValue)
-                {
-                    <form method="post" asp-page="./Edit" asp-page-handler="RemovePhoto" asp-route-id="@Model.ListingId"
-                          asp-antiforgery="true">
-                        <input type="hidden" name="ExpectedImageId" value="@Model.ImageId" />
-                        <button type="submit" class="btn btn-outline-danger">Remove photo</button>
-                    </form>
-                }
-            </section>
-        </div>
+            }
+        </section>
     </div>
 }
 

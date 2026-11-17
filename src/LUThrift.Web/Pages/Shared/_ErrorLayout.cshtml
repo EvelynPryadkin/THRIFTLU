@@ -3,18 +3,24 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - LU Thrift</title>
+    <title>@ViewData["Title"] - THRIFTLU</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body>
+<body class="error-shell">
     @* Error responses must also render when the database is unavailable. *@
-    <main class="container py-5">
-        <div class="row justify-content-center">
-            <div class="col-12 col-md-10 col-lg-8">
-                <p class="text-muted">LU Thrift</p>
-                @RenderBody()
-            </div>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="error-masthead">
+        <div class="container">
+            <a asp-page="/Index" class="error-brand">
+                <span>Lawrence University</span>
+                THRIFTLU
+            </a>
+        </div>
+    </header>
+    <main id="main-content" class="container error-main" tabindex="-1">
+        <div class="message-page error-panel">
+            @RenderBody()
         </div>
     </main>
 </body>

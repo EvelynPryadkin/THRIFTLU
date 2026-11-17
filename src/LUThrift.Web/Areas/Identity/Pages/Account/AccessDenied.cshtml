@@ -4,6 +4,11 @@
     ViewData["Title"] = "Access denied";
 }
 
-<h1>@ViewData["Title"]</h1>
-<p>You don't have permission to view this page.</p>
-<a asp-area="" asp-page="/Index" class="btn btn-primary">Return to home</a>
+<div class="message-page">
+    <header class="page-heading">
+        <p class="page-kicker">Account access</p>
+        <h1>@ViewData["Title"]</h1>
+    </header>
+    <p>You don't have permission to view this page.</p>
+    <a asp-area="" asp-page="/Index" class="btn btn-primary">Return to home</a>
+</div>

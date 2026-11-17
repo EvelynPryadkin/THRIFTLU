@@ -3,8 +3,21 @@
     ViewData["Title"] = "Staff";
 }
 
-<h1>@ViewData["Title"]</h1>
-<p>Welcome to the LU Thrift staff area.</p>
-<p><a asp-area="" asp-page="/Staff/Inventory/Index" class="btn btn-primary">View inventory</a></p>
-<p><a asp-area="" asp-page="/Staff/Pickups/Index" class="btn btn-outline-primary">Pickups</a></p>
-<a asp-area="" asp-page="/Index">Return to home</a>
+<header class="page-heading">
+    <p class="page-kicker">Staff tools</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Welcome to the LU Thrift staff area.</p>
+</header>
+<div class="staff-tool-grid">
+    <section class="form-panel" aria-labelledby="inventory-heading">
+        <h2 id="inventory-heading" class="h4">Inventory</h2>
+        <p>Create listings, update item information, and manage availability.</p>
+        <a asp-area="" asp-page="/Staff/Inventory/Index" class="btn btn-primary">View inventory</a>
+    </section>
+    <section class="form-panel" aria-labelledby="pickups-heading">
+        <h2 id="pickups-heading" class="h4">Pickups</h2>
+        <p>Find a reservation and check its details before recording a pickup.</p>
+        <a asp-area="" asp-page="/Staff/Pickups/Index" class="btn btn-outline-primary">Pickups</a>
+    </section>
+</div>
+<a asp-area="" asp-page="/Index" class="d-inline-block mt-4">Return to home</a>

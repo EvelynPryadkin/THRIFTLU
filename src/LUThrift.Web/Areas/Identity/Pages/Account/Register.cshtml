@@ -4,36 +4,39 @@
     ViewData["Title"] = "Register";
 }
 
-<h1>@ViewData["Title"]</h1>
-<div class="row">
-    <div class="col-md-6 col-lg-4">
-        <p>Create an account to use LU Thrift.</p>
-        <form method="post" asp-route-returnUrl="@Model.ReturnUrl">
+<div class="form-page form-page--account">
+    <header class="page-heading">
+        <p class="page-kicker">Your account</p>
+        <h1>@ViewData["Title"]</h1>
+        <p class="page-intro">Create an account to use LU Thrift.</p>
+    </header>
+    <div class="form-panel">
+        <form method="post" asp-route-returnUrl="@Model.ReturnUrl" class="themed-form">
             <div asp-validation-summary="ModelOnly" class="text-danger" role="alert"></div>
             <div class="mb-3">
                 <label asp-for="Input.DisplayName" class="form-label"></label>
-                <input asp-for="Input.DisplayName" class="form-control" autocomplete="nickname" maxlength="100" />
-                <span asp-validation-for="Input.DisplayName" class="text-danger"></span>
+                <input asp-for="Input.DisplayName" class="form-control" autocomplete="nickname" maxlength="100" aria-describedby="display-name-error" />
+                <span id="display-name-error" asp-validation-for="Input.DisplayName" class="text-danger"></span>
             </div>
             <div class="mb-3">
                 <label asp-for="Input.Email" class="form-label"></label>
-                <input asp-for="Input.Email" class="form-control" autocomplete="email" maxlength="256" />
-                <span asp-validation-for="Input.Email" class="text-danger"></span>
+                <input asp-for="Input.Email" class="form-control" autocomplete="email" maxlength="256" aria-describedby="email-error" />
+                <span id="email-error" asp-validation-for="Input.Email" class="text-danger"></span>
             </div>
             <div class="mb-3">
                 <label asp-for="Input.Password" class="form-label"></label>
-                <input asp-for="Input.Password" class="form-control" autocomplete="new-password" aria-describedby="password-help" />
+                <input asp-for="Input.Password" class="form-control" autocomplete="new-password" aria-describedby="password-help password-error" />
                 <div id="password-help" class="form-text">Use at least 8 characters, including uppercase, lowercase, and a number.</div>
-                <span asp-validation-for="Input.Password" class="text-danger"></span>
+                <span id="password-error" asp-validation-for="Input.Password" class="text-danger"></span>
             </div>
             <div class="mb-3">
                 <label asp-for="Input.ConfirmPassword" class="form-label"></label>
-                <input asp-for="Input.ConfirmPassword" class="form-control" autocomplete="new-password" />
-                <span asp-validation-for="Input.ConfirmPassword" class="text-danger"></span>
+                <input asp-for="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-describedby="confirm-password-error" />
+                <span id="confirm-password-error" asp-validation-for="Input.ConfirmPassword" class="text-danger"></span>
             </div>
             <button type="submit" class="btn btn-primary w-100">Register</button>
         </form>
-        <p class="mt-3">Already have an account? <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Login</a></p>
+        <p class="form-note mt-4 mb-0">Already have an account? <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Login</a></p>
     </div>
 </div>
 

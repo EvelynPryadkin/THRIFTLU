@@ -7,10 +7,14 @@
     ViewData["Title"] = "Inventory";
 }
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-    <h1 class="mb-0">@ViewData["Title"]</h1>
+<header class="page-heading page-heading--actions">
+    <div>
+        <p class="page-kicker">Staff tools</p>
+        <h1>@ViewData["Title"]</h1>
+        <p class="page-intro">All listings, from draft to archived.</p>
+    </div>
     <a asp-page="./Create" class="btn btn-primary">Create listing</a>
-</div>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(Model.InventoryMessage))
 {
@@ -21,15 +25,15 @@
     <div class="alert alert-danger" role="alert">@Model.InventoryError</div>
 }
 
-<form method="get" asp-page="/Staff/Inventory/Index" class="row g-2 align-items-end mb-4">
+<form method="get" asp-page="/Staff/Inventory/Index" class="row g-2 align-items-end mb-4 staff-filter-panel themed-form">
     <div class="col-sm-6 col-md-4">
         <label asp-for="Status" class="form-label">Status</label>
-        <select asp-for="Status" asp-items="Html.GetEnumSelectList<ListingStatus>()" class="form-select">
+        <select asp-for="Status" asp-items="Html.GetEnumSelectList<ListingStatus>()" class="form-select" aria-describedby="status-error">
             <option value="">All statuses</option>
         </select>
-        <span asp-validation-for="Status" class="text-danger"></span>
+        <span id="status-error" asp-validation-for="Status" class="text-danger"></span>
     </div>
-    <div class="col-auto">
+    <div class="col-auto form-actions">
         <button type="submit" class="btn btn-primary">Filter</button>
         <a asp-page="/Staff/Inventory/Index" class="btn btn-outline-secondary">Clear</a>
     </div>
@@ -37,17 +41,18 @@
 
 @if (!Model.HasInventory)
 {
-    <p>No inventory listings yet.</p>
+    <p class="empty-state">No inventory listings yet.</p>
 }
 else if (Model.Listings.Count == 0)
 {
-    <p>No listings match this status.</p>
+    <p class="empty-state">No listings match this status.</p>
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table align-middle">
-            <caption class="caption-top">Inventory listings, newest first.</caption>
+    <p id="inventory-scroll-help" class="form-note d-xl-none">Scroll the table sideways to see all item details and actions.</p>
+    <div class="table-responsive staff-table-scroll" role="region" aria-labelledby="inventory-caption" aria-describedby="inventory-scroll-help" tabindex="0">
+        <table class="table align-middle staff-table">
+            <caption id="inventory-caption" class="caption-top">Inventory listings, newest first.</caption>
             <thead>
                 <tr>
                     <th scope="col">Title</th>
@@ -63,9 +68,17 @@ else
                 @foreach (var listing in Model.Listings)
                 {
                     var createdAtUtc = DateTime.SpecifyKind(listing.CreatedAtUtc, DateTimeKind.Utc);
+                    var statusClass = listing.Status switch
+                    {
+                        ListingStatus.Available => "status-label--available",
+                        ListingStatus.Held => "status-label--reserved",
+                        ListingStatus.Collected => "status-label--complete",
+                        ListingStatus.Missing => "status-label--warning",
+                        _ => "status-label--muted"
+                    };
                     <tr>
                         <th scope="row">
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="staff-item-title">
                                 <img src="~/images/listing-placeholder.svg" alt="No image available" width="64" height="64" />
                                 <span class="text-break">@listing.Title</span>
                             </div>
@@ -73,12 +86,12 @@ else
                         <td>@listing.Category.Name</td>
                         <td>@listing.Condition</td>
                         <td>@(listing.Size ?? "Not specified")</td>
-                        <td>@listing.Status</td>
+                        <td><span class="status-label @statusClass">@listing.Status</span></td>
                         <td>
                             <time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@createdAtUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</time>
                         </td>
                         <td>
-                            <div class="d-flex flex-wrap gap-2">
+                            <div class="staff-actions">
                                 @if (ListingService.IsEditable(listing.Status))
                                 {
                                     <a asp-page="./Edit" asp-route-id="@listing.Id"
@@ -100,7 +113,7 @@ else
                                 {
                                     <form method="post" asp-page="./Index" asp-page-handler="Archive"
                                           asp-route-id="@listing.Id" asp-antiforgery="true">
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
                                                 aria-label="Archive @listing.Title">Archive</button>
                                     </form>
                                 }
@@ -108,7 +121,7 @@ else
                                 {
                                     <form method="post" asp-page="./Index" asp-page-handler="MarkMissing"
                                           asp-route-id="@listing.Id" asp-antiforgery="true">
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
                                                 aria-label="Mark @listing.Title as missing">Mark missing</button>
                                     </form>
                                 }
@@ -116,7 +129,7 @@ else
                                 {
                                     <form method="post" asp-page="./Index" asp-page-handler="RecordWalkInCollection"
                                           asp-route-id="@listing.Id" asp-antiforgery="true">
-                                        <button type="submit" class="btn btn-sm btn-outline-success"
+                                        <button type="submit" class="btn btn-sm btn-outline-primary"
                                                 aria-label="Record walk-in collection for @listing.Title">Record walk-in collection</button>
                                     </form>
                                 }
@@ -128,3 +141,5 @@ else
         </table>
     </div>
 }
+
+<a asp-page="/Staff/Index" class="d-inline-block mt-4">Back to staff</a>

@@ -4,13 +4,16 @@
     ViewData["Title"] = "Create listing";
 }
 
-<h1>@ViewData["Title"]</h1>
-<p>New listings start as drafts.</p>
-
-<div class="row">
-    <div class="col-md-8 col-lg-6">
+<a asp-page="./Index" class="catalog-back-link">Back to inventory</a>
+<div class="form-page">
+    <header class="page-heading">
+        <p class="page-kicker">Staff inventory</p>
+        <h1>@ViewData["Title"]</h1>
+        <p class="page-intro">New listings start as drafts.</p>
+    </header>
+    <div class="form-panel">
         <img src="~/images/listing-placeholder.svg" alt="No image available" width="96" height="96" class="mb-3" />
-        <form method="post" asp-page="./Create">
+        <form method="post" asp-page="./Create" class="themed-form">
             <div asp-validation-summary="ModelOnly" class="text-danger" role="alert"></div>
             <div class="mb-3">
                 <label asp-for="Input.Title" class="form-label"></label>
@@ -39,8 +42,10 @@
                 </select>
                 <span asp-validation-for="Input.CategoryId" id="category-error" class="text-danger"></span>
             </div>
-            <button type="submit" class="btn btn-primary">Create listing</button>
-            <a asp-page="./Index" class="btn btn-outline-secondary">Cancel</a>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create listing</button>
+                <a asp-page="./Index" class="btn btn-outline-secondary">Cancel</a>
+            </div>
         </form>
     </div>
 </div>

@@ -21,8 +21,8 @@ else
     <p>Please return to the page you were using and try again. If the problem continues, share the request reference with the LU Thrift team.</p>
 }
 <p><strong>Status:</strong> @Model.ResponseStatusCode</p>
-<p><strong>Request reference:</strong> <code class="text-break">@Model.RequestId</code></p>
-<nav aria-label="Status page navigation" class="d-flex flex-wrap gap-2">
+<p class="request-reference"><strong>Request reference:</strong> <code class="text-break">@Model.RequestId</code></p>
+<nav aria-label="Status page navigation" class="form-actions">
     @if (Model.PhotoUploadRejected)
     {
         @if (Model.PhotoListingId is int listingId)
