@@ -1,6 +1,8 @@
+using LUThrift.Web.Authorization;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
 using LUThrift.Web.Services;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -195,7 +197,15 @@ public class ListingLifecycleTests
             await database.Listings.Where(listing => listing.Id == listingId)
                 .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, status));
             var original = await database.Listings.AsNoTracking().SingleAsync(listing => listing.Id == listingId);
-            return new TestContext(connection, options, database, original, await database.Listings.CountAsync());
+            var test = new TestContext(connection, options, database, original, await database.Listings.CountAsync());
+            var actor = new ApplicationUser { Id = test.ActorId, DisplayName = "Inventory operator", IsActive = true };
+            var role = new IdentityRole(ApplicationRoles.Staff);
+            database.Users.Add(actor);
+            database.Roles.Add(role);
+            database.UserRoles.Add(new IdentityUserRole<string> { UserId = actor.Id, RoleId = role.Id });
+            await database.SaveChangesAsync();
+            database.ChangeTracker.Clear();
+            return test;
         }
 
         public async ValueTask DisposeAsync()

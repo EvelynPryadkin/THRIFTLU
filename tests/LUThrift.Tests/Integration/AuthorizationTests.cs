@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using LUThrift.Web.Authorization;
+using LUThrift.Web.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.Authorization;
@@ -106,7 +108,10 @@ public class AuthorizationTests(AuthorizationWebApplicationFactory factory)
         Assert.NotNull(policy);
         Assert.False(AllowsAnonymous(page));
 
-        var authorization = factory.Services.GetRequiredService<IAuthorizationService>();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var signIns = scope.ServiceProvider.GetRequiredService<SignInManager<ApplicationUser>>();
         Assert.False((await authorization.AuthorizeAsync(new ClaimsPrincipal(new ClaimsIdentity()), null, policy)).Succeeded);
 
         (string? Role, bool Allowed)[] cases =
@@ -118,13 +123,16 @@ public class AuthorizationTests(AuthorizationWebApplicationFactory factory)
         ];
         foreach (var (role, expected) in cases)
         {
-            var identity = new ClaimsIdentity("Test");
+            var email = IdentityTestContext.NewEmail();
+            var account = new ApplicationUser { UserName = email, Email = email, DisplayName = "Convention test" };
+            Assert.True((await users.CreateAsync(account)).Succeeded);
             if (role is not null)
             {
-                identity.AddClaim(new Claim(ClaimTypes.Role, role));
+                Assert.True((await users.AddToRoleAsync(account, role)).Succeeded);
             }
 
-            var result = await authorization.AuthorizeAsync(new ClaimsPrincipal(identity), null, policy);
+            var principal = await signIns.CreateUserPrincipalAsync(account);
+            var result = await authorization.AuthorizeAsync(principal, null, policy);
             Assert.Equal(expected, result.Succeeded);
         }
     }

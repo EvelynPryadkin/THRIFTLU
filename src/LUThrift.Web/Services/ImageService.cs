@@ -327,19 +327,10 @@ public sealed class ImageService(
             && Guid.TryParseExact(fileName[..32], "N", out _);
 
     private static string? ActorId(ClaimsPrincipal? user)
-    {
-        var actorId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
-        return user?.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(actorId) && actorId.Length <= 450
-            ? actorId : null;
-    }
+        => CurrentAccountAccess.GetUserId(user);
 
     private IQueryable<string> EligibleStaff(string actorId)
-        => from account in context.Users.AsNoTracking()
-           join membership in context.UserRoles on account.Id equals membership.UserId
-           join role in context.Roles on membership.RoleId equals role.Id
-           where account.Id == actorId && account.IsActive
-               && (role.Name == ApplicationRoles.Staff || role.Name == ApplicationRoles.Administrator)
-           select account.Id;
+        => CurrentAccountAccess.StaffAccounts(context, actorId);
 
     private async Task<ImageOperationResult?> CheckStaffAsync(string? actorId, CancellationToken cancellationToken)
     {

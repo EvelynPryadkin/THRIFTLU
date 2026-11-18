@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using LUThrift.Web.Authorization;
 using LUThrift.Web.Data;
 using LUThrift.Web.InputModels;
 using LUThrift.Web.Models;
@@ -6,7 +7,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LUThrift.Web.Services;
 
-// Call from staff-authorized PageModels; actor IDs must come from the authenticated user, never form data.
+// Actor IDs must come from trusted authentication, never form data. Each mutation also
+// verifies the current account and database role membership independently of page authorization.
 public class ListingService(ApplicationDbContext context)
 {
     private static readonly ListingStatus[] EditableStatuses =
@@ -87,6 +89,9 @@ public class ListingService(ApplicationDbContext context)
             return invalid;
         }
 
+        var invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+        if (invalidStaff is not null) return invalidStaff;
+
         if (!await context.Categories.AnyAsync(category => category.Id == input!.CategoryId, cancellationToken))
         {
             return CategoryNotFound();
@@ -111,17 +116,28 @@ public class ListingService(ApplicationDbContext context)
             OccurredAtUtc = occurredAtUtc
         };
 
-        // EF saves the new listing and its audit event in one transaction.
+        // Permission is checked around persistence as well as at entry. A revocation
+        // while the write waits must roll back both the listing and its audit.
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var committed = false;
         context.AuditEvents.Add(audit);
         try
         {
+            invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidStaff is not null) return invalidStaff;
             await context.SaveChangesAsync(cancellationToken);
+            invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidStaff is not null) return invalidStaff;
+            await transaction.CommitAsync(cancellationToken);
+            committed = true;
         }
-        catch
+        finally
         {
-            context.Entry(audit).State = EntityState.Detached;
-            context.Entry(listing).State = EntityState.Detached;
-            throw;
+            if (!committed)
+            {
+                context.Entry(audit).State = EntityState.Detached;
+                context.Entry(listing).State = EntityState.Detached;
+            }
         }
 
         return ListingResult<int>.Success(listing.Id);
@@ -137,6 +153,9 @@ public class ListingService(ApplicationDbContext context)
             return invalid;
         }
 
+        var invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+        if (invalidStaff is not null) return invalidStaff;
+
         if (!await context.Categories.AnyAsync(category => category.Id == input!.CategoryId, cancellationToken))
         {
             return CategoryNotFound();
@@ -148,9 +167,11 @@ public class ListingService(ApplicationDbContext context)
         var size = NormalizeSize(input.Size);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        // Check eligibility in the UPDATE itself, so a stale edit cannot modify a now-held or terminal listing.
+        // Keep current permission and listing eligibility in the UPDATE itself.
+        // Recheck after the statement in case it waited for another listing writer.
+        var access = CurrentAccountAccess.StaffAccounts(context, actorUserId!);
         var changed = await context.Listings
-            .Where(listing => listing.Id == listingId && EditableStatuses.Contains(listing.Status))
+            .Where(listing => listing.Id == listingId && EditableStatuses.Contains(listing.Status) && access.Any())
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(listing => listing.Title, title)
                 .SetProperty(listing => listing.Description, description)
@@ -158,6 +179,8 @@ public class ListingService(ApplicationDbContext context)
                 .SetProperty(listing => listing.Size, size)
                 .SetProperty(listing => listing.CategoryId, input.CategoryId), cancellationToken);
 
+        invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+        if (invalidStaff is not null) return invalidStaff;
         if (changed == 0)
         {
             return await context.Listings.AnyAsync(listing => listing.Id == listingId, cancellationToken)
@@ -172,16 +195,21 @@ public class ListingService(ApplicationDbContext context)
             Action = InventoryAuditActions.Updated,
             OccurredAtUtc = DateTime.UtcNow
         };
+        var committed = false;
         context.AuditEvents.Add(audit);
         try
         {
+            invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidStaff is not null) return invalidStaff;
             await context.SaveChangesAsync(cancellationToken);
+            invalidStaff = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidStaff is not null) return invalidStaff;
             await transaction.CommitAsync(cancellationToken);
+            committed = true;
         }
-        catch
+        finally
         {
-            context.Entry(audit).State = EntityState.Detached;
-            throw;
+            if (!committed) context.Entry(audit).State = EntityState.Detached;
         }
 
         return ListingResult<int>.Success(listingId);
@@ -191,7 +219,7 @@ public class ListingService(ApplicationDbContext context)
         int listingId, string? actorUserId, Func<ListingStatus, bool> canTransition,
         ListingStatus nextStatus, string action, CancellationToken cancellationToken)
     {
-        var invalidActor = ValidateActor(actorUserId);
+        var invalidActor = await CheckStaffAsync(actorUserId, cancellationToken);
         if (invalidActor is not null)
         {
             return invalidActor;
@@ -212,11 +240,14 @@ public class ListingService(ApplicationDbContext context)
             return InvalidTransition();
         }
 
-        // Check the status again in the UPDATE: another request may have changed it since the read.
+        // Check both status and permission in SQL, then recheck permission after any wait.
+        var access = CurrentAccountAccess.StaffAccounts(context, actorUserId!);
         var changed = await context.Listings
-            .Where(listing => listing.Id == listingId && listing.Status == currentStatus.Value)
+            .Where(listing => listing.Id == listingId && listing.Status == currentStatus.Value && access.Any())
             .ExecuteUpdateAsync(setters => setters.SetProperty(listing => listing.Status, nextStatus),
                 cancellationToken);
+        invalidActor = await CheckStaffAsync(actorUserId, cancellationToken);
+        if (invalidActor is not null) return invalidActor;
         if (changed == 0)
         {
             return await context.Listings.AnyAsync(listing => listing.Id == listingId, cancellationToken)
@@ -232,20 +263,35 @@ public class ListingService(ApplicationDbContext context)
             OccurredAtUtc = DateTime.UtcNow,
             Details = $"Status changed from {currentStatus.Value} to {nextStatus}."
         };
+        var committed = false;
         context.AuditEvents.Add(audit);
         try
         {
+            invalidActor = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidActor is not null) return invalidActor;
             // ExecuteUpdate and SaveChanges share this transaction; a failed audit rolls back the status.
             await context.SaveChangesAsync(cancellationToken);
+            invalidActor = await CheckStaffAsync(actorUserId, cancellationToken);
+            if (invalidActor is not null) return invalidActor;
             await transaction.CommitAsync(cancellationToken);
+            committed = true;
         }
-        catch
+        finally
         {
-            context.Entry(audit).State = EntityState.Detached;
-            throw;
+            if (!committed) context.Entry(audit).State = EntityState.Detached;
         }
 
         return ListingResult<int>.Success(listingId);
+    }
+
+    private async Task<ListingResult<int>?> CheckStaffAsync(string? actorUserId, CancellationToken cancellationToken)
+    {
+        var invalidActor = ValidateActor(actorUserId);
+        if (invalidActor is not null) return invalidActor;
+        return await CurrentAccountAccess.StaffAccounts(context, actorUserId!).AnyAsync(cancellationToken)
+            ? null
+            : ListingResult<int>.Failure(ListingResultStatus.InvalidActor,
+                new ValidationResult("An active Staff or Administrator account is required."));
     }
 
     private static ListingResult<int>? ValidateActor(string? actorUserId)

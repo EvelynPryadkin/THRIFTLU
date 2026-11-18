@@ -31,12 +31,7 @@ public sealed class StaffPickupService(
 
         // Cookie role claims can be stale. Check the current account and membership
         // before accessing reservation counts or projecting any student information.
-        var access = from account in context.Users.AsNoTracking()
-                     join membership in context.UserRoles on account.Id equals membership.UserId
-                     join role in context.Roles on membership.RoleId equals role.Id
-                     where account.Id == actorId && account.IsActive
-                         && (role.Name == ApplicationRoles.Staff || role.Name == ApplicationRoles.Administrator)
-                     select account.Id;
+        var access = CurrentAccountAccess.StaffAccounts(context, actorId);
         if (!await access.AnyAsync(cancellationToken)) return StaffRequired();
 
         var validation = new List<ValidationResult>();

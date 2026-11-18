@@ -6,6 +6,7 @@ using LUThrift.Web.Models;
 using LUThrift.Web.Operations;
 using LUThrift.Web.Security;
 using LUThrift.Web.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,7 +17,7 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Staff", Policies.StaffOrAdministrator);
     options.Conventions.AuthorizeFolder("/Admin", Policies.AdministratorOnly);
-    options.Conventions.AuthorizeFolder("/Account");
+    options.Conventions.AuthorizeFolder("/Account", Policies.ActiveAccount);
     options.Conventions.AllowAnonymousToFolder("/Thrift");
     options.Conventions.AllowAnonymousToPage("/Index");
     RequestProtection.ConfigurePages(options);
@@ -49,7 +50,8 @@ builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
         options.Stores.MaxLengthForKeys = 0;
     })
     .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>();
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddSignInManager<CurrentAccountSignInManager>();
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -61,13 +63,24 @@ builder.Services.AddRequestProtection(builder.Configuration, builder.Environment
 
 builder.Services.AddAuthorization(options =>
 {
+    var activeAccount = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .AddRequirements(new CurrentAccountRequirement(CurrentAccountPermission.ActiveAccount))
+        .Build();
+    options.AddPolicy(Policies.ActiveAccount, activeAccount);
+    // Also cover other [Authorize] pages, including Identity account management.
+    // No fallback policy: public browsing and the anonymous logout page remain available.
+    options.DefaultPolicy = activeAccount;
     options.AddPolicy(Policies.StaffOrAdministrator, policy =>
         policy.RequireAuthenticatedUser()
-            .RequireRole(ApplicationRoles.Staff, ApplicationRoles.Administrator));
+            .RequireRole(ApplicationRoles.Staff, ApplicationRoles.Administrator)
+            .AddRequirements(new CurrentAccountRequirement(CurrentAccountPermission.StaffOrAdministrator)));
     options.AddPolicy(Policies.AdministratorOnly, policy =>
         policy.RequireAuthenticatedUser()
-            .RequireRole(ApplicationRoles.Administrator));
+            .RequireRole(ApplicationRoles.Administrator)
+            .AddRequirements(new CurrentAccountRequirement(CurrentAccountPermission.Administrator)));
 });
+builder.Services.AddScoped<IAuthorizationHandler, CurrentAccountHandler>();
 
 builder.Services.AddScoped<RoleInitializer>();
 builder.Services.AddScoped<ListingService>();

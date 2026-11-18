@@ -161,12 +161,7 @@ public sealed partial class ReservationService
     }
 
     private IQueryable<string> EligiblePickupStaff(string actorId)
-        => from account in context.Users.AsNoTracking()
-           join membership in context.UserRoles on account.Id equals membership.UserId
-           join role in context.Roles on membership.RoleId equals role.Id
-           where account.Id == actorId && account.IsActive
-               && (role.Name == ApplicationRoles.Staff || role.Name == ApplicationRoles.Administrator)
-           select account.Id;
+        => CurrentAccountAccess.StaffAccounts(context, actorId);
 
     private static ReservationOperationResult PickupStaffRequired()
         => new(ReservationOperationStatus.StaffRequired, "An active Staff or Administrator account is required.");
