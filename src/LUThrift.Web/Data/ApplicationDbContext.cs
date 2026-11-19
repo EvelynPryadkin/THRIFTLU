@@ -13,6 +13,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AdministrativeAuditEvent> AdministrativeAuditEvents => Set<AdministrativeAuditEvent>();
     public DbSet<ListingImage> ListingImages => Set<ListingImage>();
+    public DbSet<PickupSchedule> PickupSchedules => Set<PickupSchedule>();
+    public DbSet<PickupScheduleInterval> PickupScheduleIntervals => Set<PickupScheduleInterval>();
+    public DbSet<PickupScheduleClosedDate> PickupScheduleClosedDates => Set<PickupScheduleClosedDate>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

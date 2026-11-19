@@ -65,6 +65,8 @@ PostgreSQL transactions lock the student account first, then the listing, so bot
 
 No official pickup hours have been invented. `Reservations:WeeklyPickupIntervals` is empty by default, so creation returns unavailable while public browsing works. Configure confirmed hours, breaks, and closed dates using the documented reservation settings and restart the app. The default campus timezone is America/Chicago; persisted times are UTC.
 
+Persistent schedule storage is now available through `PickupScheduleService`, with weekly campus-local intervals, closed dates, version conflicts, and atomic administrative audits. **The current reservation flow still reads configuration**; the Administrator UI and switching reservations to persisted hours belong to Prompt 4. Startup and GET queries never copy configuration into the database. See [schedule storage and the explicit import procedure](docs/pickup-schedule-storage.md). The one-hour duration and three-active-reservation limit remain fixed in `ReservationPolicy`.
+
 Students have a **My reservations** link to `/Account/Reservations`, and successful Reserve submissions redirect there. The page separates **Current reservations** from **Recent history**, with an **Active reservations: N of 3** count. Current means stored Active with a deadline strictly later than the captured server time. All current records are shown; history independently shows at most 20 records, ordered by creation time descending and then ID descending. A stored Active row whose deadline has arrived appears as Expired in history immediately, even before cleanup runs. The count and both sections come from one owner-filtered reservation query using the same captured time. GET requests never update records or audits.
 
 The service obtains the owner ID from authenticated claims and applies it before either query branch or the history limit. A submitted or query-string `UserId` cannot select another account. Signing in proves identity; it does not grant access to another student's records. The page and Cancel POST require Student authorization, and the service checks persisted eligibility and ownership again. Historical entries show their retained listing title, status, creation time, and deadline directly; they do not depend on public details links, which may now return 404. Older history stays in the database even when it falls outside the recent list.
@@ -139,7 +141,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, `AddListingImages`, and `AddAdministrativeAuditEvents`), and run the app:
+Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, `AddListingImages`, `AddAdministrativeAuditEvents`, and `PersistPickupSchedules`), and run the app:
 
 ```sh
 docker compose up -d --wait

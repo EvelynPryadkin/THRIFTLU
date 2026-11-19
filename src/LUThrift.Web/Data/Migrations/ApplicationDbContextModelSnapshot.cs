@@ -43,16 +43,23 @@ namespace LUThrift.Web.Data.Migrations
                     b.Property<DateTime>("OccurredAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("TargetScheduleId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("TargetUserId")
-                        .IsRequired()
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TargetScheduleId", "OccurredAtUtc");
+
                     b.HasIndex("TargetUserId", "OccurredAtUtc");
 
-                    b.ToTable("AdministrativeAuditEvents", (string)null);
+                    b.ToTable("AdministrativeAuditEvents", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AdministrativeAuditEvents_OneTarget", "(\"TargetUserId\" IS NOT NULL AND \"TargetScheduleId\" IS NULL) OR (\"TargetUserId\" IS NULL AND \"TargetScheduleId\" IS NOT NULL AND \"TargetScheduleId\" > 0)");
+                        });
                 });
 
             modelBuilder.Entity("LUThrift.Web.Models.ApplicationUser", b =>
@@ -342,6 +349,64 @@ namespace LUThrift.Web.Data.Migrations
                     b.ToTable("ListingImages", (string)null);
                 });
 
+            modelBuilder.Entity("LUThrift.Web.Models.PickupSchedule", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CampusTimeZone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PickupSchedules", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PickupSchedules_Singleton", "\"Id\" = 1");
+                        });
+                });
+
+            modelBuilder.Entity("LUThrift.Web.Models.PickupScheduleClosedDate", b =>
+                {
+                    b.Property<int>("ScheduleId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.HasKey("ScheduleId", "Date");
+
+                    b.ToTable("PickupScheduleClosedDates", (string)null);
+                });
+
+            modelBuilder.Entity("LUThrift.Web.Models.PickupScheduleInterval", b =>
+                {
+                    b.Property<int>("ScheduleId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Day")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)");
+
+                    b.Property<TimeOnly>("OpensAt")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<TimeOnly>("ClosesAt")
+                        .HasColumnType("time without time zone");
+
+                    b.HasKey("ScheduleId", "Day", "OpensAt");
+
+                    b.ToTable("PickupScheduleIntervals", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PickupScheduleIntervals_PositiveSpan", "\"OpensAt\" < \"ClosesAt\"");
+                        });
+                });
+
             modelBuilder.Entity("LUThrift.Web.Models.Reservation", b =>
                 {
                     b.Property<int>("Id")
@@ -555,6 +620,28 @@ namespace LUThrift.Web.Data.Migrations
                     b.Navigation("Listing");
                 });
 
+            modelBuilder.Entity("LUThrift.Web.Models.PickupScheduleClosedDate", b =>
+                {
+                    b.HasOne("LUThrift.Web.Models.PickupSchedule", "Schedule")
+                        .WithMany("ClosedDates")
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Schedule");
+                });
+
+            modelBuilder.Entity("LUThrift.Web.Models.PickupScheduleInterval", b =>
+                {
+                    b.HasOne("LUThrift.Web.Models.PickupSchedule", "Schedule")
+                        .WithMany("WeeklyIntervals")
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Schedule");
+                });
+
             modelBuilder.Entity("LUThrift.Web.Models.Reservation", b =>
                 {
                     b.HasOne("LUThrift.Web.Models.Listing", "Listing")
@@ -640,6 +727,13 @@ namespace LUThrift.Web.Data.Migrations
                     b.Navigation("Image");
 
                     b.Navigation("Reservations");
+                });
+
+            modelBuilder.Entity("LUThrift.Web.Models.PickupSchedule", b =>
+                {
+                    b.Navigation("ClosedDates");
+
+                    b.Navigation("WeeklyIntervals");
                 });
 #pragma warning restore 612, 618
         }

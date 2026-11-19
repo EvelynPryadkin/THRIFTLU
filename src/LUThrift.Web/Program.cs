@@ -96,6 +96,7 @@ builder.Services.AddSingleton<CampusTimeFormatter>();
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddScoped<StaffPickupService>();
 builder.Services.AddScoped<StaffAccessService>();
+builder.Services.AddScoped<PickupScheduleService>();
 builder.Services.AddHostedService<ExpireReservationsWorker>();
 
 var app = builder.Build();
