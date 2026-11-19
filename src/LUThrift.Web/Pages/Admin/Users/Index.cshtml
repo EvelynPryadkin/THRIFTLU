@@ -1,0 +1,122 @@
+@page
+@model LUThrift.Web.Pages.Admin.Users.IndexModel
+@using LUThrift.Web.InputModels
+@{
+    ViewData["Title"] = "Staff access";
+}
+
+<a asp-page="/Admin/Index" class="catalog-back-link">Back to administration</a>
+<header class="page-heading">
+    <p class="page-kicker">Administration</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Find an existing account and grant or remove access to Staff tools.</p>
+</header>
+<p>Changing Staff access preserves Student membership. Administrator accounts cannot be changed here.</p>
+<p id="staff-session-note" class="form-note">After an access change, ask the account owner to sign out and back in. Removed Staff access is blocked on their next protected request.</p>
+
+@if (!string.IsNullOrWhiteSpace(Model.StaffAccessMessage))
+{
+    <div id="staff-access-message" class="alert @(Model.StaffAccessChanged ? "alert-success" : "alert-info")" role="status">@Model.StaffAccessMessage</div>
+}
+
+<form method="get" asp-page="./Index" class="row g-3 mb-4 staff-filter-panel themed-form">
+    <div class="col-12">
+        <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+    </div>
+    <div class="col-md-8">
+        <label asp-for="Filter.Search" class="form-label"></label>
+        <input asp-for="Filter.Search" type="search" maxlength="@StaffAccessQueryInput.MaximumSearchLength"
+               class="form-control" aria-describedby="staff-search-help staff-search-error" />
+        <div id="staff-search-help" class="form-text">Search all or part of a display name or email address.</div>
+        <span asp-validation-for="Filter.Search" id="staff-search-error" class="text-danger"></span>
+    </div>
+    <div class="col-12 form-actions">
+        <button type="submit" class="btn btn-primary">Search accounts</button>
+        <a asp-page="./Index" class="btn btn-outline-secondary">Clear search</a>
+    </div>
+</form>
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <p class="empty-state">Check the search field and try again. No accounts were loaded.</p>
+}
+else
+{
+    <p id="staff-access-summary">@Model.Accounts.TotalCount @(Model.Accounts.TotalCount == 1 ? "account" : "accounts") found. Page @Model.Accounts.PageNumber of @Model.Accounts.TotalPages.</p>
+    @if (Model.Accounts.Items.Count == 0)
+    {
+        <p class="empty-state">@(Model.HasSearch ? "No accounts match this search. Check the name or email, or clear the search." : "No accounts are available.")</p>
+    }
+    else
+    {
+        <p id="staff-access-scroll-help" class="form-note d-xl-none">Scroll the table sideways to see account details and actions.</p>
+        <div class="table-responsive staff-table-scroll" role="region" aria-labelledby="staff-access-caption" aria-describedby="staff-access-scroll-help" tabindex="0">
+            <table class="table align-middle staff-table">
+                <caption id="staff-access-caption" class="caption-top">Current Staff membership for existing accounts.</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Display name</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Account</th>
+                        <th scope="col">Staff membership</th>
+                        <th scope="col">Access change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var account in Model.Accounts.Items)
+                    {
+                        <tr>
+                            <th scope="row" class="text-break">@account.DisplayName</th>
+                            <td class="text-break">@(string.IsNullOrWhiteSpace(account.Email) ? "Not available" : account.Email)</td>
+                            <td>
+                                <span class="status-label @(account.IsActive ? "status-label--available" : "status-label--muted")">@(account.IsActive ? "Active" : "Inactive")</span>
+                                @if (account.IsAdministrator)
+                                {
+                                    <span class="status-label status-label--complete">Administrator</span>
+                                }
+                            </td>
+                            <td><span class="status-label @(account.IsStaff ? "status-label--available" : "status-label--muted")">@(account.IsStaff ? "Staff" : "Not Staff")</span></td>
+                            <td>
+                                @if (account.IsAdministrator)
+                                {
+                                    <span class="form-note">Administrator access is managed separately.</span>
+                                }
+                                else
+                                {
+                                    <form method="post" asp-page="./Index" asp-page-handler="Change" asp-antiforgery="true">
+                                        <input type="hidden" name="targetUserId" value="@account.Id" />
+                                        <input type="hidden" name="action" value="@(account.IsStaff ? "Remove" : "Grant")" />
+                                        <button type="submit" class="btn btn-sm @(account.IsStaff ? "btn-outline-danger" : "btn-outline-primary")"
+                                                aria-describedby="staff-session-note" aria-label="@(account.IsStaff ? "Remove Staff access from " : "Grant Staff access to ")@account.DisplayName">@(account.IsStaff ? "Remove Staff access" : "Grant Staff access")</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <nav aria-label="Account pagination" class="catalog-pagination">
+        <ul class="pagination flex-wrap">
+            @if (Model.Accounts.HasPreviousPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Accounts.PageNumber - 1)" class="page-link" rel="prev">Previous</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Previous</span></li>
+            }
+            <li class="page-item active"><span class="page-link" aria-current="page">Page @Model.Accounts.PageNumber of @Model.Accounts.TotalPages</span></li>
+            @if (Model.Accounts.HasNextPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.Accounts.PageNumber + 1)" class="page-link" rel="next">Next</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Next</span></li>
+            }
+        </ul>
+    </nav>
+}

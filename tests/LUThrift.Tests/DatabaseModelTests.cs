@@ -8,6 +8,70 @@ namespace LUThrift.Tests;
 public class DatabaseModelTests
 {
     [Fact]
+    public void AdministrativeAuditModel_PreservesIdentifiersWithoutListingOrAccountRelationships()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=luthrift_model_test").Options;
+        using var context = new ApplicationDbContext(options);
+        var audit = context.Model.FindEntityType(typeof(AdministrativeAuditEvent));
+        Assert.NotNull(audit);
+        Assert.Equal("AdministrativeAuditEvents", audit.GetTableName());
+        var id = Assert.Single(audit.FindPrimaryKey()!.Properties);
+        Assert.Equal(nameof(AdministrativeAuditEvent.Id), id.Name);
+        Assert.Equal(typeof(int), id.ClrType);
+        Assert.Empty(audit.GetForeignKeys());
+        Assert.Empty(audit.GetNavigations());
+        Assert.Null(audit.FindProperty("ListingId"));
+
+        foreach (var name in new[] { nameof(AdministrativeAuditEvent.ActorUserId), nameof(AdministrativeAuditEvent.TargetUserId) })
+        {
+            var identifier = audit.FindProperty(name)!;
+            Assert.False(identifier.IsNullable);
+            Assert.Equal(450, identifier.GetMaxLength());
+        }
+        var action = audit.FindProperty(nameof(AdministrativeAuditEvent.Action))!;
+        Assert.False(action.IsNullable);
+        Assert.Equal(50, action.GetMaxLength());
+        var occurredAt = audit.FindProperty(nameof(AdministrativeAuditEvent.OccurredAtUtc))!;
+        Assert.False(occurredAt.IsNullable);
+        Assert.Equal("timestamp with time zone", occurredAt.GetColumnType());
+        Assert.Contains(audit.GetIndexes(), index => index.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(AdministrativeAuditEvent.TargetUserId), nameof(AdministrativeAuditEvent.OccurredAtUtc)]));
+    }
+
+    [Fact]
+    public async Task AdministrativeAuditHistory_SurvivesActorAndTargetAccountDeletion()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(connection).Options;
+        await using var context = new ApplicationDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+        var actor = new ApplicationUser { DisplayName = "Administrative audit actor" };
+        var target = new ApplicationUser { DisplayName = "Administrative audit target" };
+        var occurredAt = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var audit = new AdministrativeAuditEvent
+        {
+            ActorUserId = actor.Id, TargetUserId = target.Id,
+            Action = AdministrativeAuditActions.StaffGranted, OccurredAtUtc = occurredAt
+        };
+        context.Users.AddRange(actor, target);
+        context.AdministrativeAuditEvents.Add(audit);
+        await context.SaveChangesAsync();
+        context.Users.RemoveRange(actor, target);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        Assert.False(await context.Users.AnyAsync(user => user.Id == actor.Id || user.Id == target.Id));
+        var retained = await context.AdministrativeAuditEvents.AsNoTracking().SingleAsync();
+        Assert.Equal(audit.Id, retained.Id);
+        Assert.Equal(actor.Id, retained.ActorUserId);
+        Assert.Equal(target.Id, retained.TargetUserId);
+        Assert.Equal(AdministrativeAuditActions.StaffGranted, retained.Action);
+        Assert.Equal(occurredAt, retained.OccurredAtUtc);
+    }
+
+    [Fact]
     public void ListingImageModel_IsOptionalPerListingAndRequiresOneUniqueRestrictiveRelationship()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

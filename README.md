@@ -139,7 +139,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, and `AddListingImages`), and run the app:
+Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, `AddListingImages`, and `AddAdministrativeAuditEvents`), and run the app:
 
 ```sh
 docker compose up -d --wait
@@ -192,7 +192,11 @@ Authorization is enforced by Razor Pages folder conventions in `Program.cs`:
 
 These rules cover pages in nested folders too. Anonymous visitors to protected pages are redirected to Login. Signed-in users without the required role are redirected to Access Denied, which returns HTTP 403. Staff and Admin navigation links follow the user's roles, but the server checks access even when someone enters a URL directly.
 
-The home page links to the working public catalog and item details. Staff has working inventory, Create, Edit, and Pickups pages. Admin has a minimal landing page. Students can view and cancel their own reservations and see completed pickup or missing-item history. Profile editing and administration tools remain future work. The folder rules will apply as those pages are implemented.
+The home page links to the working public catalog and item details. Staff has working inventory, Create, Edit, and Pickups pages. Students can view and cancel their own reservations and see completed pickup or missing-item history. Profile editing and store-settings management remain future work.
+
+Active Administrators can open **Admin → Manage Staff access** (`/Admin/Users`) to search existing accounts by display name or email. Searches are limited to 100 characters, and results are paginated in groups of 20. The page grants or removes only Staff membership and preserves Student membership. Administrator accounts cannot be changed here; this page does not grant Administrator, delete accounts, or change passwords. Each actual change is saved with a separate administrative audit containing actor/target identifiers, the controlled action, and server UTC time. Repeating the same action makes no further change or audit.
+
+Staff membership and security-stamp changes share the audit transaction. After a change, the account holder should sign out and back in to refresh their role claims. Rotating the security stamp invalidates older cookies when Identity next validates them; the current-database membership checks block removed Staff access on the next protected request without waiting for that interval. Apply `AddAdministrativeAuditEvents` before using this page. Its historical identifiers have no account or listing foreign keys, so audit history is retained independently.
 
 ## Automated checks
 
