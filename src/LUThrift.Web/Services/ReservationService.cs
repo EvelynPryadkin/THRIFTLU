@@ -50,12 +50,16 @@ public sealed partial class ReservationService(
             {
                 return Failure(ReservationCreationStatus.StudentRequired, "An active Student account is required.");
             }
+            // One committed schedule per operation, including any retry. An edit
+            // committed after this read applies to the next operation. Clock reads
+            // remain fresh after owner/listing lock waits and before the save.
+            var schedule = await pickupHours.CaptureAsync(cancellationToken);
             // Reconciliation owns a separate owner→listing transaction. Never acquire
             // an old owner's lock while already holding the new student's/listing locks.
             for (var attempt = 0; attempt < 2; attempt++)
             {
                 await ReconcileListingAsync(input.ListingId, cancellationToken);
-                var result = await CreateInTransactionAsync(input.ListingId, userId, cancellationToken);
+                var result = await CreateInTransactionAsync(input.ListingId, userId, schedule, cancellationToken);
                 if (result.Status != ReservationCreationStatus.Unavailable || attempt == 1)
                 {
                     return result;
@@ -82,7 +86,7 @@ public sealed partial class ReservationService(
     }
 
     private async Task<ReservationCreationResult> CreateInTransactionAsync(
-        int listingId, string userId, CancellationToken cancellationToken)
+        int listingId, string userId, PickupHoursEligibility schedule, CancellationToken cancellationToken)
     {
         var postgres = context.Database.IsNpgsql();
         if (!postgres && context.Database.ProviderName != "Microsoft.EntityFrameworkCore.Sqlite")
@@ -117,7 +121,7 @@ public sealed partial class ReservationService(
         }
 
         // No reservation time is captured before either potentially blocking lock.
-        var window = pickupHours.Evaluate();
+        var window = schedule.Evaluate();
         if (!window.IsEligible)
         {
             return PickupUnavailable(window.Status);
@@ -157,7 +161,7 @@ public sealed partial class ReservationService(
 
         // Recheck immediately before saving, after all reads/updates. If the clock
         // went backward, retry rather than using an active count from a later time.
-        var finalWindow = pickupHours.Evaluate();
+        var finalWindow = schedule.Evaluate();
         if (!finalWindow.IsEligible)
         {
             return PickupUnavailable(finalWindow.Status);

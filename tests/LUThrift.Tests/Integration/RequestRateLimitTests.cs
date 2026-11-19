@@ -314,6 +314,7 @@ public sealed class RequestRateLimitTests
     {
         public WebApplicationFactory<ApplicationDbContext> Factory { get; } = factory;
         private readonly List<HttpClient> clients = [];
+        private bool scheduleInitialized;
 
         public static Task<RateTest> CreateAsync(
             Dictionary<string, string?>? configuration = null, bool overrideWindows = true)
@@ -362,6 +363,11 @@ public sealed class RequestRateLimitTests
 
         public async Task<Session> SignInAsync(params string[] roles)
         {
+            if (!scheduleInitialized)
+            {
+                await PickupScheduleTestData.PersistConfiguredAsync(Factory.Services);
+                scheduleInitialized = true;
+            }
             await using var scope = Factory.Services.CreateAsyncScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var email = IdentityTestContext.NewEmail();

@@ -30,11 +30,11 @@
             }
             <div>
                 <dt>Reserved</dt>
-                <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(createdAtUtc)</time></dd>
+                <dd><time datetime="@createdAtUtc.ToString("O", CultureInfo.InvariantCulture)">@(await CampusTime.FormatAsync(createdAtUtc, ViewContext.HttpContext.RequestAborted))</time></dd>
             </div>
             <div class="reservation-deadline">
                 <dt>Deadline</dt>
-                <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(expiresAtUtc)</time></dd>
+                <dd><time datetime="@expiresAtUtc.ToString("O", CultureInfo.InvariantCulture)">@(await CampusTime.FormatAsync(expiresAtUtc, ViewContext.HttpContext.RequestAborted))</time></dd>
             </div>
             @if (Model.Status == ReservationStatus.Fulfilled)
             {
@@ -42,7 +42,7 @@
                     <dt>Collected</dt>
                     @if (Model.FulfilledAtUtc is { } fulfilledAtUtc)
                     {
-                        <dd class="text-break"><time datetime="@DateTime.SpecifyKind(fulfilledAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(fulfilledAtUtc)</time></dd>
+                        <dd class="text-break"><time datetime="@DateTime.SpecifyKind(fulfilledAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@(await CampusTime.FormatAsync(fulfilledAtUtc, ViewContext.HttpContext.RequestAborted))</time></dd>
                     }
                     else
                     {

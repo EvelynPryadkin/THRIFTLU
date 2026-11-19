@@ -1,0 +1,85 @@
+@page
+@model LUThrift.Web.Pages.Admin.PickupHours.IndexModel
+@using LUThrift.Web.Pages.Admin.PickupHours
+@{
+    ViewData["Title"] = "Pickup hours";
+}
+
+<a asp-page="/Admin/Index" class="catalog-back-link">Back to administration</a>
+<header class="page-heading">
+    <p class="page-kicker">Administration</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Set when students can reserve items for pickup.</p>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(Model.PickupHoursMessage))
+{
+    <div id="pickup-hours-message" class="alert alert-info" role="status">@Model.PickupHoursMessage</div>
+}
+
+<section class="form-panel mb-4" aria-labelledby="saved-hours-heading">
+    <h2 id="saved-hours-heading" class="h4">Saved schedule</h2>
+    <p><span class="status-label @(Model.Saved.IsConfigured ? "status-label--available" : "status-label--muted")">@(Model.Saved.IsConfigured ? "Hours configured" : "Reservations unavailable: no opening hours")</span></p>
+    <p>Campus timezone: <strong>@Model.Saved.CampusTimeZone</strong></p>
+    <p id="saved-schedule-version" class="text-break">Saved version: <code>@(Model.Saved.Version?.ToString() ?? "Not saved yet")</code></p>
+    @if (Model.Saved.WeeklyPickupIntervals.Count > 0)
+    {
+        <ul>
+            @foreach (var interval in Model.Saved.WeeklyPickupIntervals)
+            {
+                <li>@interval.Day: @interval.OpensAt–@interval.ClosesAt</li>
+            }
+        </ul>
+    }
+    <p>Closed dates: @(Model.Saved.ClosedDates.Count == 0 ? "None saved" : string.Join(", ", Model.Saved.ClosedDates))</p>
+    <p class="form-note mb-0">Reservations still last one hour, with at most three active reservations per student. The whole hour must fit in one opening interval. Existing deadlines, cancellation, expiration, and pickup are unchanged.</p>
+</section>
+
+<form method="post" class="form-panel themed-form" aria-labelledby="edit-hours-heading">
+    <h2 id="edit-hours-heading" class="h4">Edit pickup hours</h2>
+    <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+    @if (Model.HasConflict)
+    {
+        <p class="alert alert-warning" role="alert">Another save changed the schedule. Keep a copy of your edits, then <a asp-page="./Index">refresh the saved schedule</a> and review it before trying again.</p>
+    }
+    <input asp-for="Input.ExpectedVersion" type="hidden" />
+    <div class="mb-3">
+        <label asp-for="Input.CampusTimeZone" class="form-label"></label>
+        <input asp-for="Input.CampusTimeZone" class="form-control" maxlength="100" aria-describedby="timezone-help timezone-error" />
+        <div id="timezone-help" class="form-text">Use a recognized timezone, such as America/Chicago. All times and closed dates below are local to this timezone.</div>
+        <span asp-validation-for="Input.CampusTimeZone" id="timezone-error" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.WeeklyIntervalsText" class="form-label"></label>
+        <textarea asp-for="Input.WeeklyIntervalsText" class="form-control" rows="8" maxlength="@IndexModel.PickupHoursForm.MaximumIntervalsTextLength" aria-describedby="intervals-help intervals-error" spellcheck="false"></textarea>
+        <div id="intervals-help" class="form-text">One interval per line: weekday name, opening HH:mm, closing HH:mm. Use commas between values and 24-hour times. Use separate intervals for breaks; intervals may not overlap or touch. At most 42 intervals. Leave this field empty to stop new reservations.</div>
+        <span asp-validation-for="Input.WeeklyIntervalsText" id="intervals-error" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.ClosedDatesText" class="form-label"></label>
+        <textarea asp-for="Input.ClosedDatesText" class="form-control" rows="5" maxlength="@IndexModel.PickupHoursForm.MaximumClosedDatesTextLength" aria-describedby="closed-dates-help closed-dates-error" spellcheck="false"></textarea>
+        <div id="closed-dates-help" class="form-text">One date per line, in yyyy-MM-dd format. Closed dates override weekly hours. At most 366 dates; leave empty if there are none.</div>
+        <span asp-validation-for="Input.ClosedDatesText" id="closed-dates-error" class="text-danger"></span>
+    </div>
+    <p class="form-note">Save only agreed pickup hours. Official hours and the physical identity-check procedure still need staff agreement.</p>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save pickup hours</button>
+        <a asp-page="./Index" class="btn btn-outline-secondary">Refresh saved schedule</a>
+    </div>
+</form>
+
+@if (Model.Saved.Version is null)
+{
+    <section class="form-panel mt-4" aria-labelledby="import-hours-heading">
+        <h2 id="import-hours-heading" class="h4">Import existing server configuration</h2>
+        <p>Review the configuration below before importing. Import only works before the first schedule is saved; it never replaces a saved schedule.</p>
+        <dl>
+            <dt>Configured timezone</dt><dd class="text-break">@Model.ConfiguredTimeZone</dd>
+            <dt>Configured opening intervals</dt><dd><pre class="text-wrap">@(string.IsNullOrWhiteSpace(Model.ConfiguredIntervals) ? "None configured" : Model.ConfiguredIntervals)</pre></dd>
+            <dt>Configured closed dates</dt><dd><pre class="text-wrap">@(string.IsNullOrWhiteSpace(Model.ConfiguredClosedDates) ? "None configured" : Model.ConfiguredClosedDates)</pre></dd>
+        </dl>
+        <form method="post" asp-page-handler="Import">
+            <button type="submit" class="btn btn-outline-primary">Import reviewed configuration</button>
+        </form>
+    </section>
+}

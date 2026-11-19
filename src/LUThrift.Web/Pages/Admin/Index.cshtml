@@ -6,12 +6,17 @@
 <header class="page-heading">
     <p class="page-kicker">Administrator tools</p>
     <h1>@ViewData["Title"]</h1>
-    <p class="page-intro">Manage access to THRIFTLU Staff tools.</p>
+    <p class="page-intro">Manage THRIFTLU Staff access and pickup hours.</p>
 </header>
 <section class="form-panel form-page" aria-labelledby="staff-access-heading">
     <h2 id="staff-access-heading" class="h4">Staff access</h2>
     <p>Find an existing account and grant or remove Staff membership. Student membership is preserved.</p>
     <a asp-page="/Admin/Users/Index" class="btn btn-primary">Manage Staff access</a>
 </section>
-<p class="form-note mt-4">Store settings and other account administration are not available here.</p>
+<section class="form-panel form-page mt-4" aria-labelledby="pickup-hours-heading">
+    <h2 id="pickup-hours-heading" class="h4">Pickup hours</h2>
+    <p>Manage weekly opening intervals, breaks, closed dates, and the campus timezone.</p>
+    <a asp-page="/Admin/PickupHours/Index" class="btn btn-primary">Manage pickup hours</a>
+</section>
+<p class="form-note mt-4">Other account administration is not available here.</p>
 <a asp-area="" asp-page="/Index">Return to home</a>

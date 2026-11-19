@@ -504,6 +504,7 @@ public class StudentReserveActionTests
             {
                 AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost")
             });
+            await PickupScheduleTestData.PersistConfiguredAsync(factory.Services);
             var userId = string.Empty;
             if (role is not null)
             {

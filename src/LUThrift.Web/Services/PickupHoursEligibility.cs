@@ -22,10 +22,18 @@ public sealed record PickupHoursResult(
 public sealed class PickupHoursEligibility
 {
     private readonly TimeProvider timeProvider;
+    private readonly PickupScheduleService? schedules;
     private readonly TimeZoneInfo? campusTimeZone;
-    private readonly IReadOnlyList<ValidatedPickupInterval> intervals;
+    private readonly IReadOnlyList<ValidatedPickupInterval> intervals = [];
     private readonly HashSet<DateOnly> closedDates = [];
     private readonly bool hasValidSchedule;
+
+    // Production callers capture the committed database schedule for each operation.
+    public PickupHoursEligibility(PickupScheduleService schedules, TimeProvider timeProvider)
+    {
+        this.schedules = schedules;
+        this.timeProvider = timeProvider;
+    }
 
     public PickupHoursEligibility(IOptions<ReservationOptions> options, TimeProvider timeProvider)
     {
@@ -37,8 +45,25 @@ public sealed class PickupHoursEligibility
         hasValidSchedule = schedule.IsConfigured;
     }
 
+    public async Task<PickupHoursEligibility> CaptureAsync(CancellationToken cancellationToken = default)
+    {
+        if (schedules is null) return this;
+        var snapshot = await schedules.GetAsync(cancellationToken);
+        return new PickupHoursEligibility(Options.Create(new ReservationOptions
+        {
+            CampusTimeZone = snapshot.CampusTimeZone,
+            WeeklyPickupIntervals = snapshot.WeeklyPickupIntervals.ToList(),
+            ClosedDates = snapshot.ClosedDates.ToList()
+        }), timeProvider);
+    }
+
+    public async Task<PickupHoursResult> EvaluateAsync(CancellationToken cancellationToken = default)
+        => (await CaptureAsync(cancellationToken)).Evaluate();
+
     public PickupHoursResult Evaluate()
     {
+        if (schedules is not null)
+            throw new InvalidOperationException("Capture the persisted pickup schedule before evaluating it.");
         if (!hasValidSchedule || campusTimeZone is null)
         {
             return new(PickupHoursStatus.ScheduleUnavailable);
@@ -95,5 +120,4 @@ public sealed class PickupHoursEligibility
 
         return new(PickupHoursStatus.Closed);
     }
-
 }

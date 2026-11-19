@@ -114,8 +114,9 @@ public sealed class StaffPickupDashboardTests
         Assert.DoesNotContain("private cancellation reason", html);
         var time = Regex.Match(card, @"<time\b[^>]*>(?<text>[\s\S]*?)</time>").Value;
         Assert.Equal(reservation.ExpiresAtUtc, DateTimeOffset.Parse(Attribute(time, "datetime"), CultureInfo.InvariantCulture).UtcDateTime);
-        var formatter = test.Factory.Services.GetRequiredService<CampusTimeFormatter>();
-        Assert.Contains(formatter.Format(reservation.ExpiresAtUtc), WebUtility.HtmlDecode(time));
+        await using var formatScope = test.Factory.Services.CreateAsyncScope();
+        var formatter = formatScope.ServiceProvider.GetRequiredService<CampusTimeFormatter>();
+        Assert.Contains(await formatter.FormatAsync(reservation.ExpiresAtUtc), WebUtility.HtmlDecode(time));
         Assert.Contains("America/Chicago, UTC-05:00", WebUtility.HtmlDecode(time));
         Assert.Contains("text-break", card);
         var actions = Tags(card, "form");

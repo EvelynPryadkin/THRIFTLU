@@ -34,7 +34,7 @@ public class ReserveModel(ReservationService reservations, CampusTimeFormatter c
 
         // Use the deadline returned after commit, never the form or another clock read.
         TempData["ReservationMessage"] = result.Succeeded
-            ? $"Reservation confirmed. Collect your item by {campusTime.Format(result.ExpiresAtUtc!.Value)}."
+            ? $"Reservation confirmed. Collect your item by {await campusTime.FormatAsync(result.ExpiresAtUtc!.Value, cancellationToken)}."
             : result.Message;
         return RedirectToPage("/Account/Reservations");
     }

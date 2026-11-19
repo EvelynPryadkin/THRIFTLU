@@ -84,7 +84,8 @@ public sealed class StaffPickupConfirmationTests
         var collected = Regex.Match(ownerCard, @"<dt>Collected</dt>\s*<dd\b[^>]*>\s*(?<time><time\b[^>]*>[\s\S]*?</time>)").Groups["time"].Value;
         Assert.NotEmpty(collected);
         Assert.Equal(saved.FulfilledAtUtc, DateTimeOffset.Parse(Attribute(collected, "datetime"), CultureInfo.InvariantCulture).UtcDateTime);
-        Assert.Contains(test.Factory.Services.GetRequiredService<CampusTimeFormatter>().Format(saved.FulfilledAtUtc!.Value),
+        await using var formatScope = test.Factory.Services.CreateAsyncScope();
+        Assert.Contains(await formatScope.ServiceProvider.GetRequiredService<CampusTimeFormatter>().FormatAsync(saved.FulfilledAtUtc!.Value),
             WebUtility.HtmlDecode(collected));
         Assert.Contains("America/Chicago, UTC-05:00", WebUtility.HtmlDecode(collected));
         Assert.Empty(Tags(ownerCard, "form"));

@@ -29,7 +29,7 @@ These rules describe the reservation policy for the LU Thrift Room. Official pic
 
 ## Configuration and Time Handling
 
-The `Reservations` configuration section ships without pickup hours because none have been confirmed:
+Pickup hours are managed by active Administrators at `/Admin/PickupHours` and stored in the database. Missing or empty persisted hours disable new reservations. Existing configuration can be explicitly imported once through that page; it is never a runtime fallback or copied automatically on startup. The `Reservations` import source ships without pickup hours because none have been confirmed:
 
 ```json
 {
@@ -51,11 +51,13 @@ Once staff confirm the schedule, each `WeeklyPickupIntervals` entry needs:
 | `OpensAt` | Campus-local opening time in 24-hour `HH:mm` format. |
 | `ClosesAt` | Campus-local closing time in 24-hour `HH:mm` format, later on the same day. |
 
-`ClosedDates` contains campus-local dates in `yyyy-MM-dd` format. There is no schedule-management screen. Configure the confirmed values through the normal ASP.NET Core configuration sources and restart the application after changes. The tests use synthetic hours; those are not an official schedule.
+`ClosedDates` contains campus-local dates in `yyyy-MM-dd` format. The Administrator page accepts up to 42 weekly intervals and 366 closed dates, with a version token to reject stale saves. Schedule changes and administrative audits commit together. New requests see committed changes without restarting. The tests use synthetic hours; those are not an official schedule. See [schedule editing and import](pickup-schedule-storage.md).
 
 Intervals must stay within one calendar day. Overlapping, duplicate, or touching intervals are invalid; write a continuous open span as one interval instead. Invalid weekdays, times, dates, or timezone IDs make the schedule unavailable rather than guessing a correction. Blank or incomplete intervals are invalid too. Overnight hours and date-specific replacement hours are outside this checkpoint.
 
 `PickupHoursEligibility` reads one instant from injected `TimeProvider`, converts it to the configured campus timezone to select the date and weekday, and converts that day's open-interval endpoints back to UTC. It adds one elapsed hour to the captured UTC instant and checks that both start and deadline fit the same interval. Eligible results contain UTC start and expiration values; ineligible results contain a reason and no reservation window. This is a read-only eligibility calculation, not a booking or a promise that an item remains available. `ReservationService` rechecks eligibility, the student's active count, and the listing inside its creation transaction.
+
+Each creation operation captures one committed database schedule after student eligibility and before reconciliation and locking. Its retries and fresh-time checks use that same schedule. An edit committed after capture affects the next operation; the already-running operation may finish using its previous snapshot. A later Reserve POST always reads again rather than trusting the schedule shown by an earlier item GET. Changing or closing hours never rewrites an existing deadline, blocks cancellation, stops expiration cleanup, or prevents an otherwise valid pickup. Campus-time displays read the persisted timezone once per response; stored reservation instants remain UTC.
 
 If a configured endpoint falls in a daylight-saving gap or repeated hour, that day's schedule is unavailable: the helper does not guess which instant staff intended. When endpoints are unambiguous, an interval may include a clock change; duration is still measured in UTC. Normal winter and summer dates therefore use the campus timezone's applicable offset rather than a hard-coded offset. All persisted reservation timestamps remain UTC in the existing database columns.
 

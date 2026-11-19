@@ -88,7 +88,7 @@ else
                                 </div>
                                 <div class="pickup-deadline">
                                     <dt>Pickup deadline</dt>
-                                    <dd class="text-break"><time datetime="@DateTime.SpecifyKind(pickup.ExpiresAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@CampusTime.Format(pickup.ExpiresAtUtc)</time></dd>
+                                    <dd class="text-break"><time datetime="@DateTime.SpecifyKind(pickup.ExpiresAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@(await CampusTime.FormatAsync(pickup.ExpiresAtUtc, ViewContext.HttpContext.RequestAborted))</time></dd>
                                 </div>
                                 <div>
                                     <dt>Reservation status</dt>

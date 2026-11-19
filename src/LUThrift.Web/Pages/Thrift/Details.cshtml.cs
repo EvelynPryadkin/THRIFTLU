@@ -63,7 +63,7 @@ public class DetailsModel(
         else
         {
             // This is only a read-only availability hint; the POST rechecks every rule.
-            PickupStatus = pickupHours.Evaluate().Status;
+            PickupStatus = (await pickupHours.EvaluateAsync(cancellationToken)).Status;
             ReservationAvailabilityMessage = PickupStatus switch
             {
                 PickupHoursStatus.Eligible => "Reservations last for one hour. Your pickup deadline will be confirmed after you reserve.",

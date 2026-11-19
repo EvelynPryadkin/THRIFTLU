@@ -448,6 +448,7 @@ public sealed class StaffMissingItemTests
                     options.WeeklyPickupIntervals = [new() { Day = "Thursday", OpensAt = "09:00", ClosesAt = "17:00" }];
                 });
             }));
+            await PickupScheduleTestData.PersistConfiguredAsync(factory.Services);
             return new(original, factory, await CreateSessionAsync(factory, role, "Pickup operator"),
                 await CreateSessionAsync(factory, ApplicationRoles.Student, "Pickup owner"),
                 await CreateSessionAsync(factory, ApplicationRoles.Student, "Other pickup student"),

@@ -126,8 +126,9 @@ public sealed class StaffPickupWorkflowTests
         else
         {
             Assert.Contains("<dt>Collected</dt>", history);
-            var formatter = test.Factory.Services.GetRequiredService<CampusTimeFormatter>();
-            Assert.Contains(formatter.Format(saved.FulfilledAtUtc!.Value), WebUtility.HtmlDecode(history));
+            await using var formatScope = test.Factory.Services.CreateAsyncScope();
+            var formatter = formatScope.ServiceProvider.GetRequiredService<CampusTimeFormatter>();
+            Assert.Contains(await formatter.FormatAsync(saved.FulfilledAtUtc!.Value), WebUtility.HtmlDecode(history));
             Assert.Contains("America/Chicago, UTC-06:00", WebUtility.HtmlDecode(history));
         }
         var otherPage = await test.OtherStudent.Client.GetStringAsync(AccountPath + "?UserId=" + test.Student.User.Id);
@@ -229,6 +230,7 @@ public sealed class StaffPickupWorkflowTests
                     options.ClosedDates = [];
                 });
             }));
+            await PickupScheduleTestData.PersistConfiguredAsync(factory.Services);
             return new(original, factory,
                 await SignedInAsync(factory, ApplicationRoles.Student, "Workflow owner"),
                 await SignedInAsync(factory, ApplicationRoles.Student, "Other workflow student"),

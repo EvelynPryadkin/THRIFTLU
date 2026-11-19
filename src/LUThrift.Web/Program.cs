@@ -91,8 +91,9 @@ builder.Services.AddScoped<CatalogService>();
 builder.Services.Configure<ReservationOptions>(builder.Configuration.GetSection(ReservationOptions.SectionName));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ReservationPolicy>();
-builder.Services.AddSingleton<PickupHoursEligibility>();
-builder.Services.AddSingleton<CampusTimeFormatter>();
+builder.Services.AddScoped(services => new PickupHoursEligibility(
+    services.GetRequiredService<PickupScheduleService>(), services.GetRequiredService<TimeProvider>()));
+builder.Services.AddScoped(services => new CampusTimeFormatter(services.GetRequiredService<PickupScheduleService>()));
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddScoped<StaffPickupService>();
 builder.Services.AddScoped<StaffAccessService>();
