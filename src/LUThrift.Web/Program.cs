@@ -97,6 +97,7 @@ builder.Services.AddScoped(services => new CampusTimeFormatter(services.GetRequi
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddScoped<StaffPickupService>();
 builder.Services.AddScoped<StaffAccessService>();
+builder.Services.AddScoped<ActivityHistoryService>();
 builder.Services.AddScoped<PickupScheduleService>();
 builder.Services.AddHostedService<ExpireReservationsWorker>();
 

@@ -1,0 +1,141 @@
+@page
+@model LUThrift.Web.Pages.Admin.Activity.IndexModel
+@using System.Globalization
+@using LUThrift.Web.InputModels
+@using LUThrift.Web.Services
+@inject LUThrift.Web.Services.CampusTimeFormatter CampusTime
+@{
+    ViewData["Title"] = "Activity history";
+}
+
+<a asp-page="/Admin/Index" class="catalog-back-link">Back to administration</a>
+<header class="page-heading">
+    <p class="page-kicker">Administration</p>
+    <h1>@ViewData["Title"]</h1>
+    <p class="page-intro">Review recorded changes to THRIFTLU. History cannot be edited or deleted here.</p>
+</header>
+
+<nav aria-label="Activity history views" class="mb-4">
+    <ul class="nav nav-pills gap-2">
+        <li class="nav-item"><a asp-page="./Index" asp-route-Filter.History="Inventory" class="nav-link @(!Model.IsAdministration ? "active" : "")" aria-current="@(!Model.IsAdministration ? "page" : null)">Listings, reservations, and photos</a></li>
+        <li class="nav-item"><a asp-page="./Index" asp-route-Filter.History="Administration" class="nav-link @(Model.IsAdministration ? "active" : "")" aria-current="@(Model.IsAdministration ? "page" : null)">Administrative activity</a></li>
+    </ul>
+</nav>
+
+<h2 id="activity-heading" class="h4">@Model.HistoryLabel</h2>
+<form method="get" asp-page="./Index" class="row g-3 mb-4 staff-filter-panel themed-form" aria-labelledby="activity-heading">
+    <input type="hidden" name="Filter.History" value="@(Model.IsAdministration ? "Administration" : "Inventory")" />
+    <div class="col-12"><div asp-validation-summary="All" class="text-danger" role="alert"></div></div>
+    <div class="col-md-6">
+        <label asp-for="Filter.Action" class="form-label">Action</label>
+        <select asp-for="Filter.Action" class="form-select">
+            <option value="">All actions</option>
+            @foreach (var action in Model.ActionOptions)
+            {
+                <option value="@action.Key">@action.Value</option>
+            }
+        </select>
+        <span asp-validation-for="Filter.Action" class="text-danger"></span>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Filter.ActorId" class="form-label">Actor account ID</label>
+        <input asp-for="Filter.ActorId" class="form-control" maxlength="450" aria-describedby="actor-filter-help" />
+        <div id="actor-filter-help" class="form-text">Exact historical ID, including a system actor ID when shown below.</div>
+        <span asp-validation-for="Filter.ActorId" class="text-danger"></span>
+    </div>
+    @if (Model.IsAdministration)
+    {
+        <div class="col-md-6">
+            <label asp-for="Filter.TargetUserId" class="form-label">Affected account ID</label>
+            <input asp-for="Filter.TargetUserId" class="form-control" maxlength="450" />
+            <span asp-validation-for="Filter.TargetUserId" class="text-danger"></span>
+        </div>
+        <div class="col-md-6">
+            <label asp-for="Filter.ScheduleId" class="form-label">Pickup schedule ID</label>
+            <input asp-for="Filter.ScheduleId" class="form-control" type="number" min="1" max="2147483647" />
+            <span asp-validation-for="Filter.ScheduleId" class="text-danger"></span>
+        </div>
+    }
+    else
+    {
+        <div class="col-md-6">
+            <label asp-for="Filter.ListingId" class="form-label">Listing ID</label>
+            <input asp-for="Filter.ListingId" class="form-control" type="number" min="1" max="2147483647" />
+            <span asp-validation-for="Filter.ListingId" class="text-danger"></span>
+        </div>
+    }
+    <div class="col-12 form-actions">
+        <button type="submit" class="btn btn-primary">Filter history</button>
+        <a asp-page="./Index" asp-route-Filter.History="@(Model.IsAdministration ? "Administration" : "Inventory")" class="btn btn-outline-secondary">Clear filters</a>
+    </div>
+</form>
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <p class="empty-state">Check the filters and try again. No activity records were loaded.</p>
+}
+else
+{
+    <p id="activity-summary">@Model.History.TotalCount @(Model.History.TotalCount == 1 ? "record" : "records") found. Page @Model.History.PageNumber of @Model.History.TotalPages.</p>
+    @if (Model.History.Items.Count == 0)
+    {
+        <p class="empty-state">No activity matches these filters. Try another record or clear the filters.</p>
+    }
+    else
+    {
+        <p id="activity-scroll-help" class="form-note d-xl-none">Scroll the table sideways to see the full record.</p>
+        <div class="table-responsive staff-table-scroll" role="region" aria-labelledby="activity-caption" aria-describedby="activity-scroll-help" tabindex="0">
+            <table class="table align-middle staff-table">
+                <caption id="activity-caption" class="caption-top">@Model.HistoryLabel, newest first. Names and titles describe current records; retained IDs identify historical records.</caption>
+                <thead><tr><th scope="col">Action</th><th scope="col">Actor</th><th scope="col">Affected record</th><th scope="col">Campus time</th><th scope="col">Summary</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in Model.History.Items)
+                    {
+                        <tr data-activity-id="@entry.Id">
+                            <th scope="row">@entry.ActionLabel<div class="form-note">Audit #@entry.Id</div></th>
+                            <td class="text-break">@(entry.ActorId == ReservationService.ExpirationActorId ? "System: reservation expiration" : string.IsNullOrWhiteSpace(entry.ActorDisplayName) ? "Account unavailable" : entry.ActorDisplayName)<div><code>@entry.ActorId</code></div></td>
+                            <td class="text-break">
+                                @if (entry.ListingId is { } listingId)
+                                {
+                                    <span>Listing #@listingId</span><div>@(entry.ListingTitle ?? "Title unavailable")</div>
+                                }
+                                else if (entry.TargetUserId is { } targetId)
+                                {
+                                    <span>Affected account</span><div>@(string.IsNullOrWhiteSpace(entry.TargetDisplayName) ? "Account unavailable" : entry.TargetDisplayName)</div><code>@targetId</code>
+                                }
+                                else if (entry.ScheduleId is { } scheduleId)
+                                {
+                                    <span>Pickup schedule #@scheduleId</span>
+                                }
+                            </td>
+                            <td><time datetime="@DateTime.SpecifyKind(entry.OccurredAtUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)">@(await CampusTime.FormatAsync(entry.OccurredAtUtc, ViewContext.HttpContext.RequestAborted))</time></td>
+                            <td>@entry.Summary</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="form-note">Summaries use known action descriptions. Raw audit payloads and internal storage details are not displayed.</p>
+    }
+    <nav aria-label="Activity pagination" class="catalog-pagination">
+        <ul class="pagination flex-wrap">
+            @if (Model.History.HasPreviousPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.History.PageNumber - 1)" class="page-link" rel="prev">Previous</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Previous</span></li>
+            }
+            <li class="page-item active"><span class="page-link" aria-current="page">Page @Model.History.PageNumber of @Model.History.TotalPages</span></li>
+            @if (Model.History.HasNextPage)
+            {
+                <li class="page-item"><a asp-page="./Index" asp-all-route-data="Model.RouteValues(Model.History.PageNumber + 1)" class="page-link" rel="next">Next</a></li>
+            }
+            else
+            {
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">Next</span></li>
+            }
+        </ul>
+    </nav>
+}

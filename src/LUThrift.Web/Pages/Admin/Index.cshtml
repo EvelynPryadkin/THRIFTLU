@@ -6,7 +6,7 @@
 <header class="page-heading">
     <p class="page-kicker">Administrator tools</p>
     <h1>@ViewData["Title"]</h1>
-    <p class="page-intro">Manage THRIFTLU Staff access and pickup hours.</p>
+    <p class="page-intro">Manage THRIFTLU Staff access and pickup hours, and review activity history.</p>
 </header>
 <section class="form-panel form-page" aria-labelledby="staff-access-heading">
     <h2 id="staff-access-heading" class="h4">Staff access</h2>
@@ -17,6 +17,11 @@
     <h2 id="pickup-hours-heading" class="h4">Pickup hours</h2>
     <p>Manage weekly opening intervals, breaks, closed dates, and the campus timezone.</p>
     <a asp-page="/Admin/PickupHours/Index" class="btn btn-primary">Manage pickup hours</a>
+</section>
+<section class="form-panel form-page mt-4" aria-labelledby="activity-heading">
+    <h2 id="activity-heading" class="h4">Activity history</h2>
+    <p>Review listing, reservation, photo, and administrative changes. History is read-only.</p>
+    <a asp-page="/Admin/Activity/Index" class="btn btn-primary">View activity history</a>
 </section>
 <p class="form-note mt-4">Other account administration is not available here.</p>
 <a asp-area="" asp-page="/Index">Return to home</a>
