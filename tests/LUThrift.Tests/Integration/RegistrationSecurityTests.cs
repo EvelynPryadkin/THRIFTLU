@@ -22,7 +22,7 @@ public class RegistrationSecurityTests(AuthorizationWebApplicationFactory factor
     {
         using var client = await factory.CreateIdentityClientAsync();
         var token = await ReadRegistrationTokenAsync(client);
-        var email = IdentityTestContext.NewEmail();
+        var email = IdentityTestContext.NewCampusEmail();
         var forgedId = Guid.NewGuid().ToString();
         var form = CreateRegistrationForm(email);
         form["__RequestVerificationToken"] = token;
@@ -46,7 +46,7 @@ public class RegistrationSecurityTests(AuthorizationWebApplicationFactory factor
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
-        Assert.Equal("/", new Uri(client.BaseAddress!, response.Headers.Location).AbsolutePath);
+        Assert.Equal("/Identity/Account/RegisterConfirmation", new Uri(client.BaseAddress!, response.Headers.Location).AbsolutePath);
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
@@ -64,8 +64,8 @@ public class RegistrationSecurityTests(AuthorizationWebApplicationFactory factor
             Assert.Equal(HttpStatusCode.Redirect, denied.StatusCode);
             Assert.NotNull(denied.Headers.Location);
             var location = new Uri(client.BaseAddress!, denied.Headers.Location);
-            // AccessDenied confirms the registration cookie authenticated the user, without privileged access.
-            Assert.Equal("/Identity/Account/AccessDenied", location.AbsolutePath);
+            // New registration has no authentication cookie before confirmation.
+            Assert.Equal("/Identity/Account/Login", location.AbsolutePath);
             Assert.Equal(protectedPath, QueryHelpers.ParseQuery(location.Query)["ReturnUrl"].ToString());
         }
     }
@@ -76,7 +76,7 @@ public class RegistrationSecurityTests(AuthorizationWebApplicationFactory factor
         using var client = await factory.CreateIdentityClientAsync();
         using var page = await client.GetAsync(RegisterPath);
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
-        var email = IdentityTestContext.NewEmail();
+        var email = IdentityTestContext.NewCampusEmail();
         using var content = new FormUrlEncodedContent(CreateRegistrationForm(email));
 
         using var response = await client.PostAsync(RegisterPath, content);

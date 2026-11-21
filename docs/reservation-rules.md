@@ -2,6 +2,12 @@
 
 These rules describe the reservation policy for the LU Thrift Room. Official pickup hours and operating procedures still need confirmation from thrift-room staff. Week 6 implements policy, pickup-hours eligibility, student creation, owner cancellation, background expiration, and My Reservations; checkpoint 6 verifies that workflow. Students reserve from public item details through a protected POST to `/Account/Reserve`, then view and cancel their own reservations at `/Account/Reservations`. Week 7 adds the staff pickup dashboard, atomic pickup confirmation, and reporting a reserved item missing.
 
+## Student eligibility
+
+New registrations must use an exact `@lawrence.edu` email address and confirm it before signing in. Existing accounts are not deleted, automatically confirmed, or blocked from sign-in by this transition. All new reservations require an existing active Student account with a confirmed `@lawrence.edu` email, including Students who registered before confirmation was introduced. The service checks that database state before creation and again under the existing owner → listing locks; an old cookie cannot bypass it.
+
+Confirmation of a personal email does not make it a campus email. Existing Students can still view their history and cancel owned eligible holds under the existing authorization rules. Staff and Administrators retain management access, and email confirmation does not change existing reservation deadlines, expiration, or valid staff pickup. See [email confirmation and transition setup](email-confirmation.md).
+
 ## Reservation Duration
 
 * A reservation lasts for **one hour**.

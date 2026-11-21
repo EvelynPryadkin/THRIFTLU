@@ -308,8 +308,8 @@ public sealed class ReservationLifecycleTests
             await connection.OpenAsync();
             var database = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(connection).Options);
             await database.Database.EnsureCreatedAsync();
-            database.Users.AddRange(new ApplicationUser { Id = Student, DisplayName = "Student" },
-                new ApplicationUser { Id = OtherStudent, DisplayName = "Other student" });
+            database.Users.AddRange(new ApplicationUser { Id = Student, DisplayName = "Student", Email = "synthetic@lawrence.edu", NormalizedEmail = "SYNTHETIC@LAWRENCE.EDU", EmailConfirmed = true },
+                new ApplicationUser { Id = OtherStudent, DisplayName = "Other student", Email = "synthetic-other@lawrence.edu", NormalizedEmail = "SYNTHETIC-OTHER@LAWRENCE.EDU", EmailConfirmed = true });
             database.Roles.Add(new IdentityRole { Id = "role", Name = ApplicationRoles.Student });
             database.UserRoles.AddRange(new IdentityUserRole<string> { UserId = Student, RoleId = "role" },
                 new IdentityUserRole<string> { UserId = OtherStudent, RoleId = "role" });

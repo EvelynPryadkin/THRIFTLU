@@ -8,6 +8,7 @@ using LUThrift.Web.Security;
 using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,7 +37,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
     {
         options.User.RequireUniqueEmail = true;
-        options.SignIn.RequireConfirmedAccount = false;
+        options.SignIn.RequireConfirmedAccount = true;
         options.SignIn.RequireConfirmedEmail = false;
 
         options.Password.RequiredLength = 8;
@@ -52,6 +53,21 @@ builder.Services.AddDefaultIdentity<ApplicationUser>(options =>
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager<CurrentAccountSignInManager>();
+
+builder.Services.AddScoped<IUserConfirmation<ApplicationUser>, AccountEmailConfirmation>();
+builder.Services.AddSingleton<CampusAccountPolicy>();
+builder.Services.AddOptions<EmailConfirmationOptions>()
+    .Bind(builder.Configuration.GetSection(EmailConfirmationOptions.SectionName))
+    .Validate(options => string.IsNullOrWhiteSpace(options.PublicBaseUrl)
+        || options.TryGetBaseUri(builder.Environment.IsDevelopment(), out _),
+        "EmailConfirmation:PublicBaseUrl must be an HTTPS origin without credentials, path, query or fragment; Development also permits loopback HTTP.")
+    .ValidateOnStart();
+builder.Services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.FromHours(24));
+builder.Services.AddScoped<IEmailSender>(services => builder.Environment.IsDevelopment()
+    && !string.IsNullOrWhiteSpace(services.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmailConfirmationOptions>>().Value.DevelopmentPickupDirectory)
+        ? ActivatorUtilities.CreateInstance<DevelopmentPickupEmailSender>(services)
+        : new UnconfiguredEmailSender());
+builder.Services.AddScoped<EmailConfirmationService>();
 
 builder.Services.ConfigureApplicationCookie(options =>
 {

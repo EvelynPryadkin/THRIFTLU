@@ -20,9 +20,9 @@ ASP.NET Core Razor Pages and C# on .NET 10, with Entity Framework Core, PostgreS
 
 Accounts, staff inventory, the public catalog, student reservations, and staff pickup handling are implemented through Week 7. The home page is a landing page with a Browse items link to `/Thrift`. Week 8 adds listing photos, request protection, safe error responses, and health checks. The November 12 full suite passed all 883 tests, including both optional PostgreSQL suites. The [November 9/11 browser record](docs/week8-browser-verification.md) remains separate from the [final automated verification](#week-8-final-verification); its oversized-upload feedback defect has been fixed and checked through HTTP tests and a disposable Development host.
 
-Registration collects a display name, email, password, and password confirmation. Email addresses must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction before signing the user in. The form has no role field, and submitted role values are ignored. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
+Registration collects a display name, email, password, and password confirmation. New registrations require an exact `@lawrence.edu` address; personal addresses and subdomains are not accepted. Emails must be unique, and display names are required with a 100-character limit. The server creates the account and assigns Student in one transaction, then sends an Identity confirmation link. New accounts cannot sign in until they confirm. The form cannot select roles or mark an email confirmed. Login uses a generic error for invalid credentials, and logout requires an antiforgery-protected POST.
 
-Student, Staff, and Administrator roles are created at startup. Staff pages require Staff or Administrator; Admin pages require Administrator. The optional development administrator setup below promotes only an existing account. Email confirmation is disabled while there is no email service.
+Student, Staff, and Administrator roles are created at startup. Staff pages require current active Staff or Administrator membership; Admin pages require current active Administrator membership. The optional development administrator setup below promotes only an existing account. Existing accounts keep sign-in and management access without being deleted or automatically confirmed. Every Student needs a confirmed `@lawrence.edu` address to make new reservations; existing history, cancellation, expiration, and staff pickup remain available under their existing rules. See [email confirmation setup and account transition](docs/email-confirmation.md). A production email adapter is still pending; Development can use the private local mailbox described there.
 
 Staff and Administrators can open `/Staff/Inventory` to view every listing status, filter by status, and see the newest listings first. The dashboard links to Create and Edit. New listings always start as Draft; editing changes only the title, description, condition, optional size, and category. Draft, Available, and Missing listings can be edited. The server validates required fields, length limits, and category existence through `ListingService`.
 
@@ -55,9 +55,9 @@ The browsing flow is browser GET → Razor PageModel → `CatalogService` → EF
 
 ### Reservations (Week 6)
 
-Signed-out visitors can browse and open details, which offer a sign-in link returning to that public item GET. An active Student sees **Reserve item** for an Available item when pickup eligibility permits a full hour. Closed, unconfigured, and insufficient pickup time each have an explanation. The display is a hint; it does not promise availability or bypass the reservation limit.
+Signed-out visitors can browse and open details, which offer a sign-in link returning to that public item GET. An active Student with a confirmed `@lawrence.edu` email sees **Reserve item** for an Available item when pickup eligibility permits a full hour. Closed, unconfigured, and insufficient pickup time each have an explanation. The display is a hint; it does not promise availability or bypass the reservation limit.
 
-The form posts only `ListingId` and its antiforgery token to `/Account/Reserve`. The entire receiving page requires Student authorization under the protected Account folder; no creation handler lives under the anonymous Thrift folder. `ReservationService.CreateAsync` receives the authenticated server principal and rechecks the persisted account's active state and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. Submitted owner IDs, roles, statuses, durations, or timestamps are ignored because they are absent from the input model.
+The form posts only `ListingId` and its antiforgery token to `/Account/Reserve`. The entire receiving page requires Student authorization under the protected Account folder; no creation handler lives under the anonymous Thrift folder. `ReservationService.CreateAsync` receives the authenticated server principal and rechecks the persisted account's active state, verified campus email and Student membership, configured pickup hours, Available status, and the three-active-reservation limit. It saves a one-hour Active reservation, the Held listing status, and a `ListingReserved` audit together. Submitted owner IDs, roles, statuses, durations, or timestamps are ignored because they are absent from the input model.
 
 Business outcomes redirect to My reservations with a useful message, including stale availability, duplicate submissions, limits, closed hours, and conflicts. Successful confirmation displays the deadline returned by the committed service operation. It never adds an hour to the browser's clock or to a later GET. A GET to `/Account/Reserve` only redirects to browsing and cannot replay a reservation.
 
@@ -116,6 +116,7 @@ Built-in POST rate limits have independent fixed windows and no queue:
 | --- | --- | --- |
 | Login | Sign in | 10 per 60 seconds |
 | Registration | Register | 5 per 600 seconds |
+| ResendConfirmation | Request confirmation email | 3 per 600 seconds |
 | Reservations | Reserve and Cancel, shared | 20 per 60 seconds |
 | Pickups | Confirm pickup and Report missing, shared | 30 per 60 seconds |
 | ImageUploads | Upload/replace photo | 10 per 60 seconds |
@@ -141,7 +142,7 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
   --project src/LUThrift.Web
 ```
 
-Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, `AddListingImages`, `AddAdministrativeAuditEvents`, and `PersistPickupSchedules`), and run the app:
+Then start the database, apply the migrations (including `AddInventoryAuditEvents`, `EnforceSingleActiveReservationPerListing`, `AddListingImages`, `AddAdministrativeAuditEvents`, `PersistPickupSchedules`, and `AddAccountEmailConfirmationRequirement`), and run the app:
 
 ```sh
 docker compose up -d --wait
@@ -164,7 +165,7 @@ HAVING COUNT(*) > 1;
 
 ### Optional development administrator
 
-Register a local account first. To give that existing account the Administrator role during development, store its email in user secrets, replacing the placeholder:
+Register and confirm a local account first using the [Development mailbox setup](docs/email-confirmation.md#local-development-without-an-email-provider). To give that existing account the Administrator role during development, store its email in user secrets, replacing the placeholder:
 
 ```sh
 dotnet user-secrets set "DevelopmentAdmin:Email" "YOUR_EXISTING_ACCOUNT_EMAIL" \
@@ -348,7 +349,7 @@ ConnectionStrings__DefaultConnection='Host=127.0.0.1;Port=1;Database=luthrift_mo
   dotnet ef migrations has-pending-model-changes --project src/LUThrift.Web --no-build -- --environment Testing
 ```
 
-The custom account workflow includes registration, login, logout, access denial, and viewing/canceling owned reservations. Email delivery, campus sign-in, account deactivation, and profile editing remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean email delivery or those application features have been completed.
+The custom account workflow includes campus-email registration, confirmation/resend, login, logout, access denial, and viewing/canceling owned reservations. Production email delivery, campus SSO, account deactivation management, and profile editing remain future work. The Identity UI package still supplies its other standard pages; their presence does not mean those application features have been completed. Email confirmation has a private Development mailbox for local testing; see [setup and the existing-account transition](docs/email-confirmation.md).
 
 ### Week 6 browser verification — October 28, 2026
 
@@ -468,6 +469,7 @@ Week 5's automated and browser acceptance checks are complete within the scope r
 - [Reservation rules](docs/reservation-rules.md)
 - [Development log](docs/development-log.md)
 - [Request protection and rate-limit configuration](docs/request-protection.md)
+- [Email confirmation and campus account policy](docs/email-confirmation.md)
 - [Safe errors, logging, and health checks](docs/operational-safeguards.md)
 - [Photo and staff pickup browser verification](docs/week8-browser-verification.md)
 

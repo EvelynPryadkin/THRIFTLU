@@ -22,7 +22,7 @@ public sealed partial class ReservationService(
     {
         var userId = user?.FindFirstValue(ClaimTypes.NameIdentifier);
         return user?.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(userId) && userId.Length <= 450
-            && await context.Users.AnyAsync(row => row.Id == userId && row.IsActive, cancellationToken)
+            && await CampusAccountPolicy.VerifiedAccounts(context, userId).AnyAsync(cancellationToken)
             && await IsStudentAsync(userId, cancellationToken);
     }
 
@@ -48,7 +48,7 @@ public sealed partial class ReservationService(
             // The account and membership are checked again under creation's locks.
             if (!await IsEligibleStudentAsync(user, cancellationToken))
             {
-                return Failure(ReservationCreationStatus.StudentRequired, "An active Student account is required.");
+                return Failure(ReservationCreationStatus.StudentRequired, "An active Student account with a confirmed @lawrence.edu email is required.");
             }
             // One committed schedule per operation, including any retry. An edit
             // committed after this read applies to the next operation. Clock reads
@@ -106,13 +106,13 @@ public sealed partial class ReservationService(
         }
 
         var status = await LockListingAsync(listingId, postgres, cancellationToken);
-        if (!await (
+        if (!await CampusAccountPolicy.VerifiedAccounts(context, userId).AnyAsync(cancellationToken) || !await (
                 from membership in context.UserRoles
                 join role in context.Roles on membership.RoleId equals role.Id
                 where membership.UserId == userId && role.Name == ApplicationRoles.Student
                 select membership).AnyAsync(cancellationToken))
         {
-            return Failure(ReservationCreationStatus.StudentRequired, "An active Student account is required.");
+            return Failure(ReservationCreationStatus.StudentRequired, "An active Student account with a confirmed @lawrence.edu email is required.");
         }
 
         if (status is null)

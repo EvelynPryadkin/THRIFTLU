@@ -1,0 +1,21 @@
+@page
+@model LUThrift.Web.Areas.Identity.Pages.Account.ResendEmailConfirmationModel
+@{ ViewData["Title"] = "Request confirmation email"; }
+<div class="form-page form-page--account">
+    <header class="page-heading"><p class="page-kicker">Your account</p><h1>@ViewData["Title"]</h1></header>
+    <div class="form-panel">
+        @if (Model.ConfirmationRequested)
+        {
+            <p role="status">If this is an active account awaiting confirmation, we have attempted to send a link. Check your inbox and spam folder. If nothing arrives, try again later or contact the THRIFTLU team. Delivery may not be configured yet.</p>
+        }
+        <form method="post" asp-route-returnUrl="@Model.ReturnUrl" class="themed-form">
+            <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+            <label asp-for="Email" class="form-label"></label>
+            <input asp-for="Email" class="form-control" autocomplete="email" maxlength="256" aria-describedby="email-error" />
+            <span asp-validation-for="Email" id="email-error" class="text-danger"></span>
+            <button type="submit" class="btn btn-primary mt-3">Send confirmation email</button>
+        </form>
+        <p class="form-note mt-3">Existing accounts can still sign in. New reservations require a verified @@lawrence.edu email; confirming a personal email does not meet that rule.</p>
+        <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Back to Login</a>
+    </div>
+</div>

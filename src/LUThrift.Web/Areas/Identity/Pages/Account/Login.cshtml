@@ -32,6 +32,7 @@
         <p class="form-note mt-4 mb-0">
             <a asp-page="./Register" asp-route-returnUrl="@Model.ReturnUrl">Register a student account</a>
         </p>
+        <p class="form-note mt-3 mb-0">New accounts must confirm their email before signing in. <a asp-page="./ResendEmailConfirmation" asp-route-returnUrl="@Model.ReturnUrl">Request another confirmation email</a>.</p>
     </div>
 </div>
 

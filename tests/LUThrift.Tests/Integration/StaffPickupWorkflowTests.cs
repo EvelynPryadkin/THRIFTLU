@@ -244,8 +244,8 @@ public sealed class StaffPickupWorkflowTests
             var client = NewClient(factory);
             await using var scope = factory.Services.CreateAsyncScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var email = IdentityTestContext.NewEmail();
-            var user = new ApplicationUser { UserName = email, Email = email, DisplayName = displayName };
+            var email = IdentityTestContext.NewCampusEmail();
+            var user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, DisplayName = displayName };
             Assert.True((await users.CreateAsync(user)).Succeeded);
             Assert.True((await users.AddToRoleAsync(user, role)).Succeeded);
             var principal = await scope.ServiceProvider.GetRequiredService<SignInManager<ApplicationUser>>().CreateUserPrincipalAsync(user);

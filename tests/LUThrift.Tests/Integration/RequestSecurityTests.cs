@@ -73,11 +73,11 @@ public sealed class RequestSecurityTests
     }
 
     [Fact]
-    public async Task Registration_InProductionSetsProtectedCookieAndRejectsExternalReturnUrl()
+    public async Task Registration_RequiresConfirmationBeforeProtectedLoginAndRejectsExternalReturnUrl()
     {
         await using var host = SecurityHost.Create("Production");
         var path = RegisterPath + "?returnUrl=" + Uri.EscapeDataString("https://example.invalid/external");
-        var email = IdentityTestContext.NewEmail();
+        var email = IdentityTestContext.NewCampusEmail();
         var password = IdentityTestContext.NewPassword();
         var token = await TokenAsync(host.Client, path);
         using var response = await host.Client.PostAsync(path, new FormUrlEncodedContent(new Dictionary<string, string>
@@ -90,16 +90,27 @@ public sealed class RequestSecurityTests
         }));
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/", response.Headers.Location!.OriginalString);
-        var cookie = ApplicationCookie(response, host.Services);
-        Assert.True(cookie.Secure);
-        Assert.True(cookie.HttpOnly);
-        Assert.Equal(Microsoft.Net.Http.Headers.SameSiteMode.Lax, cookie.SameSite);
+        Assert.StartsWith("/Identity/Account/RegisterConfirmation", response.Headers.Location!.OriginalString);
+        Assert.DoesNotContain("example.invalid", response.Headers.Location.OriginalString);
+        AssertNoApplicationCookie(response, host.Services);
         await using var scope = host.Services.CreateAsyncScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var account = await users.FindByEmailAsync(email);
         Assert.NotNull(account);
         Assert.Equal(new[] { ApplicationRoles.Student }, await users.GetRolesAsync(account));
+        Assert.False(account.EmailConfirmed);
+        Assert.True(account.EmailConfirmationRequiredForSignIn);
+        var confirmation = await users.GenerateEmailConfirmationTokenAsync(account);
+        Assert.True((await users.ConfirmEmailAsync(account, confirmation)).Succeeded);
+
+        var loginPath = LoginPath + "?returnUrl=" + Uri.EscapeDataString("https://example.invalid/external");
+        using var login = await LoginAsync(host.Client, loginPath, email, password, await TokenAsync(host.Client, loginPath));
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        Assert.Equal("/", login.Headers.Location!.OriginalString);
+        var cookie = ApplicationCookie(login, host.Services);
+        Assert.True(cookie.Secure);
+        Assert.True(cookie.HttpOnly);
+        Assert.Equal(Microsoft.Net.Http.Headers.SameSiteMode.Lax, cookie.SameSite);
     }
 
     [Fact]

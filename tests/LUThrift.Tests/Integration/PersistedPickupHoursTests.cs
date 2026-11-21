@@ -265,8 +265,8 @@ public sealed class PersistedPickupHoursTests
             var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
             await using var scope = factory.Services.CreateAsyncScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var email = IdentityTestContext.NewEmail();
-            var user = new ApplicationUser { Email = email, UserName = email, DisplayName = "Synthetic schedule test account" };
+            var email = IdentityTestContext.NewCampusEmail();
+            var user = new ApplicationUser { Email = email, EmailConfirmed = true, UserName = email, DisplayName = "Synthetic schedule test account" };
             Assert.True((await users.CreateAsync(user)).Succeeded);
             Assert.True((await users.AddToRoleAsync(user, role)).Succeeded);
             var principal = await scope.ServiceProvider.GetRequiredService<SignInManager<ApplicationUser>>().CreateUserPrincipalAsync(user);

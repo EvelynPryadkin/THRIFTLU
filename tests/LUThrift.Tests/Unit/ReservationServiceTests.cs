@@ -285,7 +285,7 @@ public class ReservationServiceTests
             var database = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(connection).Options);
             await database.Database.EnsureCreatedAsync();
-            database.Users.Add(new ApplicationUser { Id = UserId, DisplayName = "Reservation test student" });
+            database.Users.Add(new ApplicationUser { Id = UserId, DisplayName = "Reservation test student", Email = "synthetic@lawrence.edu", NormalizedEmail = "SYNTHETIC@LAWRENCE.EDU", EmailConfirmed = true });
             database.Roles.Add(new IdentityRole { Id = "student-role", Name = ApplicationRoles.Student });
             database.UserRoles.Add(new IdentityUserRole<string> { UserId = UserId, RoleId = "student-role" });
             await database.SaveChangesAsync();

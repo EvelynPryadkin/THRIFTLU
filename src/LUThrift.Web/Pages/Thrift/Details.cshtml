@@ -55,7 +55,8 @@
             }
             else if (!Model.IsEligibleStudent)
             {
-                <p>An active Student account is required to reserve items.</p>
+                <p>An active Student account with a confirmed @@lawrence.edu email is required to reserve items.</p>
+                <a asp-area="Identity" asp-page="/Account/ResendEmailConfirmation" asp-route-returnUrl="@Model.LoginReturnUrl">Request a confirmation email</a>
             }
             else if (Model.CanReserve)
             {

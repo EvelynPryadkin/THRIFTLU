@@ -1297,6 +1297,7 @@ public partial class ReservationConcurrencyTests
             database.Users.Add(new ApplicationUser
             {
                 Id = id, DisplayName = "Reservation test student", UserName = "student-" + id,
+                Email = id + "@lawrence.edu", NormalizedEmail = id.ToUpperInvariant() + "@LAWRENCE.EDU", EmailConfirmed = true,
                 IsActive = true, CreatedAtUtc = InitialNow.UtcDateTime
             });
             database.UserRoles.Add(new IdentityUserRole<string> { UserId = id, RoleId = StudentRoleId });

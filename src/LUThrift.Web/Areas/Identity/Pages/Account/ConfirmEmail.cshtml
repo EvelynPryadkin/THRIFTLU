@@ -1,0 +1,18 @@
+@page
+@model LUThrift.Web.Areas.Identity.Pages.Account.ConfirmEmailModel
+@{ ViewData["Title"] = "Email confirmation"; }
+<div class="form-page form-page--account">
+    <header class="page-heading"><p class="page-kicker">Your account</p><h1>@ViewData["Title"]</h1></header>
+    <div class="form-panel">
+        @if (Model.EmailConfirmationSucceeded == true)
+        {
+            <p role="status">Your email is confirmed. You can sign in now. New reservations require a confirmed @@lawrence.edu email.</p>
+        }
+        else
+        {
+            <p role="status">We couldn't confirm your email from this page. The link may be invalid or expired. Request a new confirmation email and use its link.</p>
+        }
+        <p><a asp-page="./ResendEmailConfirmation" asp-route-returnUrl="@Model.ReturnUrl">Request another confirmation email</a></p>
+        <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl" class="btn btn-primary">Go to Login</a>
+    </div>
+</div>

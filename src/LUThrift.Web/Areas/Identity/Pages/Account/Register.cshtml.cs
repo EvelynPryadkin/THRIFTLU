@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using LUThrift.Web.Authorization;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
+using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -13,8 +14,9 @@ namespace LUThrift.Web.Areas.Identity.Pages.Account;
 [AllowAnonymous]
 public class RegisterModel(
     UserManager<ApplicationUser> userManager,
-    SignInManager<ApplicationUser> signInManager,
     ApplicationDbContext dbContext,
+    EmailConfirmationService confirmations,
+    CampusAccountPolicy campusPolicy,
     ILogger<RegisterModel> logger) : PageModel
 {
     [BindProperty]
@@ -60,16 +62,22 @@ public class RegisterModel(
         }
 
         var email = Input.Email.Trim();
+        if (!campusPolicy.CanRegister(email))
+        {
+            ModelState.AddModelError("Input.Email", "Use your @lawrence.edu email address to register.");
+            return Page();
+        }
         var user = new ApplicationUser
         {
             DisplayName = Input.DisplayName.Trim(),
             UserName = email,
             Email = email,
             CreatedAtUtc = DateTime.UtcNow,
-            IsActive = true
+            IsActive = true,
+            EmailConfirmationRequiredForSignIn = true
         };
 
-        // User creation and the Student role must succeed together before signing in.
+        // Commit account and Student membership together before attempting delivery.
         await using (var transaction = await dbContext.Database.BeginTransactionAsync())
         {
             var result = await userManager.CreateAsync(user, Input.Password);
@@ -101,8 +109,9 @@ public class RegisterModel(
             await transaction.CommitAsync();
         }
 
-        await signInManager.SignInAsync(user, isPersistent: false);
-        return LocalRedirect(ReturnUrl);
+        var delivered = await confirmations.SendAsync(user, ReturnUrl, HttpContext.RequestAborted);
+        TempData["ConfirmationDeliveryFailed"] = !delivered;
+        return RedirectToPage("./RegisterConfirmation", new { returnUrl = ReturnUrl });
     }
 
     private PageResult RoleAssignmentFailed()

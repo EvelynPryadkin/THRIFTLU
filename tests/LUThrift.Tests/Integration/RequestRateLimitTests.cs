@@ -25,6 +25,7 @@ public sealed class RequestRateLimitTests
 {
     private const string Login = "/Identity/Account/Login";
     private const string Register = "/Identity/Account/Register";
+    private const string Resend = "/Identity/Account/ResendEmailConfirmation";
     private const string Reserve = "/Account/Reserve";
     private const string Cancel = "/Account/Reservations?handler=Cancel";
     private const string Confirm = "/Staff/Pickups?handler=ConfirmPickup";
@@ -34,6 +35,7 @@ public sealed class RequestRateLimitTests
     [Theory]
     [InlineData(Login, null, HttpStatusCode.OK)]
     [InlineData(Register, null, HttpStatusCode.OK)]
+    [InlineData(Resend, null, HttpStatusCode.OK)]
     [InlineData(Reserve, ApplicationRoles.Student, HttpStatusCode.Redirect)]
     [InlineData(Cancel, ApplicationRoles.Student, HttpStatusCode.Redirect)]
     [InlineData(Confirm, ApplicationRoles.Staff, HttpStatusCode.Redirect)]
@@ -56,7 +58,7 @@ public sealed class RequestRateLimitTests
     }
 
     [Fact]
-    public async Task LoginAndRegistration_HaveSeparateBudgetsAndDoNotLimitTheirGetForms()
+    public async Task LoginRegistrationAndResend_HaveSeparateBudgetsAndDoNotLimitTheirGetForms()
     {
         await using var test = await RateTest.CreateAsync();
         var client = test.NewClient();
@@ -65,7 +67,9 @@ public sealed class RequestRateLimitTests
         using (var limitedLogin = await PostAsync(client, Login, token)) await AssertRejectedAsync(limitedLogin);
         using (var firstRegistration = await PostAsync(client, Register, token)) Assert.Equal(HttpStatusCode.OK, firstRegistration.StatusCode);
         using (var limitedRegistration = await PostAsync(client, Register, token)) await AssertRejectedAsync(limitedRegistration);
-        foreach (var path in new[] { Login, Register })
+        using (var firstResend = await PostAsync(client, Resend, token)) Assert.Equal(HttpStatusCode.OK, firstResend.StatusCode);
+        using (var limitedResend = await PostAsync(client, Resend, token)) await AssertRejectedAsync(limitedResend);
+        foreach (var path in new[] { Login, Register, Resend })
         {
             using var page = await client.GetAsync(path);
             Assert.Equal(HttpStatusCode.OK, page.StatusCode);
@@ -74,20 +78,22 @@ public sealed class RequestRateLimitTests
         }
     }
 
-    [Fact]
-    public async Task AnonymousPartitions_UseConnectionIpAndIgnoreForwardedHeaders()
+    [Theory]
+    [InlineData(Login)]
+    [InlineData(Resend)]
+    public async Task AnonymousPartitions_UseConnectionIpAndIgnoreForwardedHeaders(string path)
     {
         await using var test = await RateTest.CreateAsync();
         var first = test.NewClient("203.0.113.10");
         var sameIp = test.NewClient("203.0.113.10");
         var differentIp = test.NewClient("203.0.113.11");
         var token = await TokenAsync(first);
-        using (var allowed = await PostAsync(first, Login, token)) Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        using (var allowed = await PostAsync(first, path, token)) Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
         first.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.50");
         first.DefaultRequestHeaders.Add("Forwarded", "for=198.51.100.51;proto=https");
-        using (var forged = await PostAsync(first, Login, token)) await AssertRejectedAsync(forged);
-        using (var shared = await PostAsync(sameIp, Login, await TokenAsync(sameIp))) await AssertRejectedAsync(shared);
-        using (var isolated = await PostAsync(differentIp, Login, await TokenAsync(differentIp)))
+        using (var forged = await PostAsync(first, path, token)) await AssertRejectedAsync(forged);
+        using (var shared = await PostAsync(sameIp, path, await TokenAsync(sameIp))) await AssertRejectedAsync(shared);
+        using (var isolated = await PostAsync(differentIp, path, await TokenAsync(differentIp)))
             Assert.Equal(HttpStatusCode.OK, isolated.StatusCode);
     }
 
@@ -243,6 +249,8 @@ public sealed class RequestRateLimitTests
     [Theory]
     [InlineData("Login:PermitLimit", "0")]
     [InlineData("Registration:PermitLimit", "-1")]
+    [InlineData("ResendConfirmation:PermitLimit", "0")]
+    [InlineData("ResendConfirmation:WindowSeconds", "3601")]
     [InlineData("ImageUploads:PermitLimit", "1001")]
     [InlineData("Registration:WindowSeconds", "0")]
     [InlineData("Pickups:WindowSeconds", "-1")]
@@ -333,7 +341,7 @@ public sealed class RequestRateLimitTests
                     if (overrideWindows)
                         services.PostConfigure<RequestProtectionOptions>(options =>
                         {
-                            foreach (var window in new[] { options.Login, options.Registration, options.Reservations, options.Pickups, options.ImageUploads })
+                            foreach (var window in new[] { options.Login, options.Registration, options.ResendConfirmation, options.Reservations, options.Pickups, options.ImageUploads })
                             {
                                 window.PermitLimit = 1;
                                 window.WindowSeconds = 600;
@@ -370,8 +378,8 @@ public sealed class RequestRateLimitTests
             }
             await using var scope = Factory.Services.CreateAsyncScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var email = IdentityTestContext.NewEmail();
-            var user = new ApplicationUser { DisplayName = "Synthetic rate-limit account", UserName = email, Email = email };
+            var email = IdentityTestContext.NewCampusEmail();
+            var user = new ApplicationUser { DisplayName = "Synthetic rate-limit account", UserName = email, Email = email, EmailConfirmed = true };
             Assert.True((await users.CreateAsync(user)).Succeeded);
             Assert.True((await users.AddToRolesAsync(user, roles)).Succeeded);
             var principal = await scope.ServiceProvider.GetRequiredService<SignInManager<ApplicationUser>>().CreateUserPrincipalAsync(user);

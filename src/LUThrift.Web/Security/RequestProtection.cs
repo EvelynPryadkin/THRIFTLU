@@ -14,6 +14,7 @@ public static class RequestProtection
 {
     public const string LoginPolicy = "login-posts";
     public const string RegistrationPolicy = "registration-posts";
+    public const string ResendConfirmationPolicy = "resend-confirmation-posts";
     public const string ReservationPolicy = "reservation-posts";
     public const string PickupPolicy = "pickup-posts";
     public const string ImageUploadPolicy = "image-upload-posts";
@@ -45,6 +46,7 @@ public static class RequestProtection
             var limits = settings.Value;
             AddPostPolicy(options, LoginPolicy, limits.Login);
             AddPostPolicy(options, RegistrationPolicy, limits.Registration);
+            AddPostPolicy(options, ResendConfirmationPolicy, limits.ResendConfirmation);
             AddPostPolicy(options, ReservationPolicy, limits.Reservations, authenticatedOnly: true);
             AddPostPolicy(options, PickupPolicy, limits.Pickups, authenticatedOnly: true);
             AddPostPolicy(options, ImageUploadPolicy, limits.ImageUploads, authenticatedOnly: true, handler: "UploadPhoto");
@@ -75,6 +77,8 @@ public static class RequestProtection
             model => model.EndpointMetadata.Add(new EnableRateLimitingAttribute(LoginPolicy)));
         options.Conventions.AddAreaPageApplicationModelConvention("Identity", "/Account/Register",
             model => model.EndpointMetadata.Add(new EnableRateLimitingAttribute(RegistrationPolicy)));
+        options.Conventions.AddAreaPageApplicationModelConvention("Identity", "/Account/ResendEmailConfirmation",
+            model => model.EndpointMetadata.Add(new EnableRateLimitingAttribute(ResendConfirmationPolicy)));
         options.Conventions.AddPageApplicationModelConvention("/Account/Reserve",
             model => model.EndpointMetadata.Add(new EnableRateLimitingAttribute(ReservationPolicy)));
         options.Conventions.AddPageApplicationModelConvention("/Account/Reservations",
@@ -128,7 +132,7 @@ public static class RequestProtection
             context.Response.OnStarting(() =>
             {
                 context.Response.Headers.XContentTypeOptions = "nosniff";
-                context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+                context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
                 context.Response.Headers.XFrameOptions = "DENY";
                 context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
                 return Task.CompletedTask;

@@ -10,6 +10,7 @@ Each policy has an independent fixed window with no request queue:
 | --- | --- | --- | --- |
 | `Login` | `/Identity/Account/Login` | 10 | 60 seconds |
 | `Registration` | `/Identity/Account/Register` | 5 | 600 seconds |
+| `ResendConfirmation` | `/Identity/Account/ResendEmailConfirmation` | 3 | 600 seconds |
 | `Reservations` | `/Account/Reserve` and `/Account/Reservations` (Cancel), sharing a budget | 20 | 60 seconds |
 | `Pickups` | `/Staff/Pickups` (ConfirmPickup and ReportMissing), sharing a budget | 30 | 60 seconds |
 | `ImageUploads` | `/Staff/Inventory/Edit?handler=UploadPhoto` | 10 | 60 seconds |
@@ -25,7 +26,7 @@ Environment variable equivalents are `RequestProtection__Login__PermitLimit` and
 
 The key is the authenticated user's ID when available, otherwise the connection's remote IP. Users sharing an IP have independent authenticated budgets; anonymous visitors behind the same NAT share a budget. Missing connection IPs share an `unknown` bucket. IPv4-mapped IPv6 addresses are normalized. Form fields, email addresses, `Forwarded`, and `X-Forwarded-For` cannot choose a key. No forwarded-header trust has been added: if a reverse proxy is deployed, its trusted forwarding setup must be configured explicitly; otherwise anonymous traffic can share the proxy's connection IP budget.
 
-Reservations, pickups, and uploads require authentication before entering their limiter. Login and registration also limit anonymous POSTs. The rate limiter runs after routing, authentication, and authorization, before Razor Pages handlers and antiforgery validation. An authorized POST with a missing token still consumes a permit and is rejected by antiforgery while permits remain; once exhausted, it receives 429 without executing the handler.
+Reservations, pickups, and uploads require authentication before entering their limiter. Login, registration, and confirmation resend also limit anonymous POSTs, each with an independent budget. The rate limiter runs after routing, authentication, and authorization, before Razor Pages handlers and antiforgery validation. An authorized POST with a missing token still consumes a permit and is rejected by antiforgery while permits remain; once exhausted, it receives 429 without executing the handler.
 
 A rejected request receives **HTTP 429**, a numeric `Retry-After` header in seconds, `Cache-Control: no-store`, and a short instruction to wait and retry. It is not queued or processed. The app does not automatically replay a form submission.
 
@@ -40,7 +41,7 @@ All four Identity cookie schemes use `HttpOnly` and `SameSite=Lax`. Outside Deve
 Responses receive:
 
 - `X-Content-Type-Options: nosniff` to prevent content-type guessing.
-- `Referrer-Policy: strict-origin-when-cross-origin` to avoid sending a full URL to another origin.
+- `Referrer-Policy: strict-origin-when-cross-origin` to avoid sending a full URL to another origin. Email confirmation uses the stricter `no-referrer` and redirects to a token-free URL before displaying its result.
 - `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'` to prevent embedding the application in a frame.
 
 The headers also apply to errors, redirects, static files, and throttled responses. Framing headers remain consistent when antiforgery generates a form response. The CSP currently controls framing only; it does not impose new script or style restrictions. Production HTTPS redirection and HSTS remain unchanged.

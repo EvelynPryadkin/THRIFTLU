@@ -1,12 +1,15 @@
 using LUThrift.Web.Areas.Identity.Pages.Account;
 using LUThrift.Web.Data;
 using LUThrift.Web.Models;
+using LUThrift.Web.Configuration;
+using LUThrift.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Routing;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -104,10 +107,13 @@ internal sealed class IdentityTestContext : IAsyncDisposable
         var actionContext = new ActionContext(
             new DefaultHttpContext(), new RouteData(), new PageActionDescriptor());
 
-        return new RegisterModel(Users, SignIns, Database, NullLogger<RegisterModel>.Instance)
+        var confirmations = new EmailConfirmationService(Users, new UnconfiguredEmailSender(),
+            Options.Create(new EmailConfirmationOptions()), new TestHostEnvironment(), NullLogger<EmailConfirmationService>.Instance);
+        return new RegisterModel(Users, Database, confirmations, new CampusAccountPolicy(), NullLogger<RegisterModel>.Instance)
         {
             PageContext = new PageContext(actionContext),
             Url = new UrlHelper(actionContext),
+            TempData = new TempDataDictionary(actionContext.HttpContext, new MemoryTempDataProvider()),
             Input = input
         };
     }
@@ -127,6 +133,7 @@ internal sealed class IdentityTestContext : IAsyncDisposable
     }
 
     public static string NewEmail() => $"{Guid.NewGuid():N}@example.test";
+    public static string NewCampusEmail() => $"synthetic-{Guid.NewGuid():N}@lawrence.edu";
     public static string NewPassword() => Convert.ToBase64String(
         System.Security.Cryptography.RandomNumberGenerator.GetBytes(24)) + "Aa1";
 
@@ -143,6 +150,12 @@ internal sealed class IdentityTestContext : IAsyncDisposable
         public string ApplicationName { get; set; } = nameof(IdentityTestContext);
         public string ContentRootPath { get; set; } = string.Empty;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class MemoryTempDataProvider : ITempDataProvider
+    {
+        public IDictionary<string, object> LoadTempData(HttpContext context) => new Dictionary<string, object>();
+        public void SaveTempData(HttpContext context, IDictionary<string, object> values) { }
     }
 
     private sealed class RejectingRoleValidator(string description) : IRoleValidator<IdentityRole>

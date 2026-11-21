@@ -1,0 +1,19 @@
+@page
+@model LUThrift.Web.Areas.Identity.Pages.Account.RegisterConfirmationModel
+@{ ViewData["Title"] = "Confirm your email"; }
+<div class="form-page form-page--account">
+    <header class="page-heading"><p class="page-kicker">Your account</p><h1>@ViewData["Title"]</h1></header>
+    <div class="form-panel">
+        @if (Model.ConfirmationDeliveryFailed == true)
+        {
+            <p role="status">Your account was created, but we couldn't send the confirmation email. You can request another email when delivery is available. You do not need to register again.</p>
+        }
+        else
+        {
+            <p>Check your email for a THRIFTLU confirmation link. New accounts must confirm their email before signing in. Confirmation links expire after 24 hours.</p>
+        }
+        <p><a asp-page="./ResendEmailConfirmation" asp-route-returnUrl="@Model.ReturnUrl">Request another confirmation email</a></p>
+        <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl" class="btn btn-primary">Go to Login</a>
+        <a asp-area="" asp-page="/Thrift/Index" class="btn btn-outline-secondary">Browse items</a>
+    </div>
+</div>

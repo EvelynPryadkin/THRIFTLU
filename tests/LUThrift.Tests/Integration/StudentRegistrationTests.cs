@@ -10,7 +10,7 @@ namespace LUThrift.Tests.Integration;
 public class StudentRegistrationTests
 {
     [Fact]
-    public async Task Register_CreatesStudentOnlyBeforeSigningIn()
+    public async Task Register_CreatesStudentAtomicallyWithoutSigningInBeforeConfirmation()
     {
         await using var context = await IdentityTestContext.CreateAsync();
         await context.CreateInitializer().InitializeAsync();
@@ -20,7 +20,9 @@ public class StudentRegistrationTests
 
         var result = await model.OnPostAsync("/Thrift");
 
-        Assert.Equal("/Thrift", Assert.IsType<LocalRedirectResult>(result).Url);
+        var redirect = Assert.IsType<RedirectToPageResult>(result);
+        Assert.Equal("./RegisterConfirmation", redirect.PageName);
+        Assert.Equal("/Thrift", redirect.RouteValues!["returnUrl"]);
         var user = await context.Database.Users.AsNoTracking().SingleAsync();
         Assert.Equal("Test student", user.DisplayName);
         Assert.Equal(input.Email, user.Email);
@@ -29,11 +31,9 @@ public class StudentRegistrationTests
         Assert.True(user.IsActive);
         Assert.True(await context.Users.CheckPasswordAsync(user, input.Password));
         Assert.Equal(new[] { ApplicationRoles.Student }, await context.Users.GetRolesAsync(user));
-        var signIn = Assert.Single(context.SignIns.Calls);
-        Assert.Equal(user.Id, signIn.User.Id);
-        Assert.False(signIn.IsPersistent);
-        Assert.Equal(new[] { ApplicationRoles.Student }, signIn.Roles);
-        Assert.False(signIn.HasActiveTransaction);
+        Assert.False(user.EmailConfirmed);
+        Assert.True(user.EmailConfirmationRequiredForSignIn);
+        Assert.Empty(context.SignIns.Calls);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class StudentRegistrationTests
     {
         await using var context = await IdentityTestContext.CreateAsync();
         await context.CreateInitializer().InitializeAsync();
-        var existingUser = await context.CreateUserAsync();
+        var existingUser = await context.CreateUserAsync(IdentityTestContext.NewCampusEmail());
         var input = NewInput();
         input.Email = existingUser.Email!.ToUpperInvariant();
         var model = context.CreateRegistration(input);
@@ -130,7 +130,7 @@ public class StudentRegistrationTests
         return new RegisterModel.InputModel
         {
             DisplayName = "Test student",
-            Email = IdentityTestContext.NewEmail(),
+            Email = IdentityTestContext.NewCampusEmail(),
             Password = password,
             ConfirmPassword = password
         };

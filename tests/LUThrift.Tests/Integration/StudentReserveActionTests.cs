@@ -510,9 +510,9 @@ public class StudentReserveActionTests
             {
                 await using var scope = factory.Services.CreateAsyncScope();
                 var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-                var email = IdentityTestContext.NewEmail();
+                var email = IdentityTestContext.NewCampusEmail();
                 var password = IdentityTestContext.NewPassword();
-                var user = new ApplicationUser { UserName = email, Email = email, DisplayName = "Student reserve HTTP test" };
+                var user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, DisplayName = "Student reserve HTTP test" };
                 Assert.True((await users.CreateAsync(user, password)).Succeeded);
                 Assert.True((await users.AddToRoleAsync(user, role)).Succeeded);
                 userId = user.Id;
